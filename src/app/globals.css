@@ -20,11 +20,14 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* iOS zooms into inputs smaller than 16px; keep all form fields at least 16px. */
-input,
-select,
-textarea {
-  font-size: max(16px, 1em);
+/* iOS zooms into inputs smaller than 16px; keep all form fields at least 16px.
+   In the base layer so Tailwind text-* utilities (e.g. text-lg) can still go bigger. */
+@layer base {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
 }
 
 /* Hide number-field spinners (we use inputMode, but just in case). */

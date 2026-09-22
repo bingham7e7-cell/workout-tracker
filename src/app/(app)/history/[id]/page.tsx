@@ -4,7 +4,8 @@ import { DeleteWorkoutButton } from "@/components/DeleteWorkoutButton";
 import { PageHeader } from "@/components/PageHeader";
 import { getWeightUnit, getWorkout } from "@/lib/data/queries";
 import { formatWeight } from "@/lib/domain/units";
-import { formatDate, formatDuration, formatTime } from "@/lib/format";
+import { LocalTime } from "@/components/LocalTime";
+import { formatDuration } from "@/lib/format";
 
 export default async function WorkoutDetailPage({ params }: PageProps<"/history/[id]">) {
   const { id } = await params;
@@ -16,7 +17,7 @@ export default async function WorkoutDetailPage({ params }: PageProps<"/history/
     <>
       <PageHeader title={workout.name} />
       <p className="-mt-3 mb-5 text-zinc-400">
-        {formatDate(workout.startedAt)} · {formatTime(workout.startedAt)} ·{" "}
+        <LocalTime iso={workout.startedAt} show="dateTime" /> ·{" "}
         {formatDuration(workout.startedAt, workout.finishedAt)}
       </p>
 

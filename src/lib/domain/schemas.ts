@@ -49,7 +49,7 @@ export const workoutPayloadSchema = z
 export type WorkoutPayload = z.infer<typeof workoutPayloadSchema>;
 
 export const templatePayloadSchema = z.object({
-  id: z.uuid().nullable(),
+  id: z.uuid(),
   name,
   notes: z.string().max(2000).nullable(),
   exercises: z

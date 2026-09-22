@@ -85,7 +85,7 @@ export function ExercisePicker({ onPick, onClose }: { onPick: (e: PickedExercise
             {error && (
               <div className="mb-3 rounded-lg bg-red-950 p-3 text-red-200">
                 {error}{" "}
-                <button onClick={load} className="underline">
+                <button onClick={load} className="ml-1 inline-flex min-h-11 items-center px-2 underline">
                   Retry
                 </button>
               </div>

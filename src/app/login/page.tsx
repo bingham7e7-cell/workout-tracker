@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { describeError } from "@/lib/client/errors";
 
@@ -11,7 +11,16 @@ import { describeError } from "@/lib/client/errors";
  * (it opens in Safari instead), so you type the code here.
  */
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const linkFailed = useSearchParams().get("error") === "link";
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"email" | "code">("email");
@@ -109,6 +118,12 @@ export default function LoginPage() {
         </form>
       )}
       {error && <p className="mt-4 rounded-lg bg-red-950 p-3 text-red-200">{error}</p>}
+      {linkFailed && !error && step === "email" && (
+        <p className="mt-4 rounded-lg bg-amber-950 p-3 text-amber-200">
+          That sign-in link didn&apos;t work here (it may have expired or been opened in a different app). Request a
+          new email and type the 6-digit code instead.
+        </p>
+      )}
     </main>
   );
 }

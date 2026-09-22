@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createDraft, type TemplateExerciseSeed } from "@/lib/domain/draft";
+import { countSets, createDraft, type TemplateExerciseSeed } from "@/lib/domain/draft";
 import type { WeightUnit } from "@/lib/domain/units";
 import { loadDraft, saveDraft } from "@/lib/client/draftStorage";
 
@@ -19,13 +19,16 @@ export function StartWorkoutButton({ unit, template, className, children }: Prop
   function start() {
     const existing = loadDraft();
     if (existing) {
-      const discard = window.confirm(
-        `You already have "${existing.name}" in progress.\n\nOK = discard it and start a new workout\nCancel = go back to it`,
-      );
-      if (!discard) {
+      // The safe choice (resume) is the default; discarding needs a second, explicit "OK".
+      if (window.confirm(`You already have "${existing.name}" in progress. Resume it?`)) {
         router.push("/workout");
         return;
       }
+      const { logged } = countSets(existing);
+      const discard = window.confirm(
+        `Discard "${existing.name}"${logged > 0 ? ` and its ${logged} logged set${logged === 1 ? "" : "s"}` : ""} and start a new workout?\n\nThis can't be undone.`,
+      );
+      if (!discard) return;
     }
     saveDraft(
       createDraft({

@@ -19,7 +19,7 @@ import {
   type WorkoutDraft,
 } from "@/lib/domain/draft";
 import { clearDraft, loadDraft, saveDraft, useActiveDraft } from "@/lib/client/draftStorage";
-import { describeError, timeoutSignal } from "@/lib/client/errors";
+import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { formatTime } from "@/lib/format";
 
@@ -30,6 +30,7 @@ export function WorkoutScreen() {
   const [setErrors, setSetErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -91,10 +92,19 @@ export function WorkoutScreen() {
     savingRef.current = true;
     setSaving(true);
     try {
-      const { error } = await getSupabaseBrowser()
+      const supabase = getSupabaseBrowser();
+      const { data, error } = await supabase
         .rpc("save_workout", { p_workout: built.payload })
         .abortSignal(timeoutSignal(30_000));
       if (error) throw error;
+      if ((data as { duplicate?: boolean } | null)?.duplicate) {
+        // An earlier attempt already reached the database (its reply was lost).
+        // Apply this latest version on top, so edits made since then aren't dropped.
+        const { error: updateError } = await supabase
+          .rpc("update_workout", { p_workout: built.payload })
+          .abortSignal(timeoutSignal(30_000));
+        if (updateError) throw updateError;
+      }
       // Only now — after the database confirmed — remove it from the phone.
       setSaved(true);
       clearDraft();
@@ -103,6 +113,7 @@ export function WorkoutScreen() {
     } catch (e) {
       setError(`${describeError(e)} Your workout is still safe on this phone.`);
       setSaveFailed(true);
+      setSignedOut(isSignedOutError(e));
       savingRef.current = false;
       setSaving(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -133,6 +144,13 @@ export function WorkoutScreen() {
   return (
     <div className="pb-8">
       <header className="sticky top-0 z-10 -mx-4 flex items-center gap-2 border-b border-zinc-900 bg-zinc-950/95 px-4 pt-safe backdrop-blur">
+        <Link
+          href="/"
+          aria-label="Home (your workout stays in progress)"
+          className="-ml-2 flex h-12 w-10 shrink-0 items-center justify-center text-2xl text-zinc-400"
+        >
+          ‹
+        </Link>
         <div className="min-w-0 flex-1 py-2">
           <input
             aria-label="Workout name"
@@ -163,7 +181,12 @@ export function WorkoutScreen() {
       {error && (
         <div className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">
           {error}
-          {!saving && saveFailed && (
+          {!saving && saveFailed && signedOut && (
+            <Link href="/login" className="mt-2 flex h-11 w-full items-center justify-center rounded-lg bg-red-900 font-semibold">
+              Sign in again
+            </Link>
+          )}
+          {!saving && saveFailed && !signedOut && (
             <button onClick={finish} className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold">
               Try saving again
             </button>

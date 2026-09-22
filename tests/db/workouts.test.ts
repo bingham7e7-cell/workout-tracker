@@ -156,6 +156,33 @@ describe("saving workouts", () => {
     expect((await countRows(alice, payload.id)).workouts).toBe(0);
   });
 
+  test("reusing another user's workout id is an error, never a silent 'duplicate'", async () => {
+    const payload = await buildPayload(alice);
+    await saveWorkout(alice, payload);
+    const bobPayload = await buildPayload(bob);
+    bobPayload.id = payload.id;
+    await expect(saveWorkout(bob, bobPayload)).rejects.toThrow(/already in use/);
+  });
+
+  test("a retry after a lost reply can apply later edits via update_workout", async () => {
+    const payload = await buildPayload(alice);
+    await saveWorkout(alice, payload); // reached the DB, but the phone never heard back
+    const edited = structuredClone(payload);
+    edited.exercises[0].sets[1].reps = 7;
+    const retry = await saveWorkout(alice, edited);
+    expect(retry.duplicate).toBe(true);
+    await db.asUser(alice, () => db.query("select update_workout($1::jsonb)", [JSON.stringify(edited)]));
+    const r = await db.asUser(alice, () =>
+      db.query<{ reps: number }>(
+        `select ws.reps from workout_sets ws join workout_exercises we on we.id = ws.workout_exercise_id
+          where we.workout_id = $1 and we.position = 0 and ws.position = 1`,
+        [payload.id],
+      ),
+    );
+    expect(r.rows[0].reps).toBe(7);
+    expect(await countRows(alice, payload.id)).toEqual({ workouts: 1, exercises: 2, sets: 4 });
+  });
+
   test("a template deleted mid-workout doesn't block saving", async () => {
     const payload = await buildPayload(alice);
     payload.template_id = crypto.randomUUID();
@@ -318,6 +345,45 @@ describe("templates", () => {
       ]),
     );
     expect(w.rows).toEqual([{ name: "Chest A v2", template_id: null }]);
+  });
+});
+
+describe("template create is idempotent", () => {
+  test("saving a new template twice with the same client id creates one template", async () => {
+    const fly = await exerciseId(alice, "Dumbbell Fly");
+    const payload = { id: crypto.randomUUID(), name: "Retry me", notes: null, exercises: [{ exercise_id: fly, target_sets: 3, target_reps: 10 }] };
+    for (let i = 0; i < 2; i++) {
+      await db.asUser(alice, () => db.query("select save_template($1::jsonb)", [JSON.stringify(payload)]));
+    }
+    const r = await db.asUser(alice, () =>
+      db.query<{ n: number; ex: number }>(
+        "select count(*)::int n, (select count(*)::int from template_exercises where template_id = $1) ex from templates where name = 'Retry me'",
+        [payload.id],
+      ),
+    );
+    expect(r.rows[0]).toEqual({ n: 1, ex: 1 });
+  });
+});
+
+describe("account deletion", () => {
+  test("deleting a user with templates and workout history removes all their data", async () => {
+    const carol = await db.createUser("carol@example.com");
+    const payload = await buildPayload(carol);
+    await saveWorkout(carol, payload);
+    await db.asUser(carol, () =>
+      db.query("select save_template($1::jsonb)", [
+        JSON.stringify({ id: null, name: "C", notes: null, exercises: [{ exercise_id: payload.exercises[0].exercise_id, target_sets: 1, target_reps: 1 }] }),
+      ]),
+    );
+    await db.query("delete from auth.users where id = $1", [carol]);
+    const r = await db.query<{ n: number }>(
+      `select (select count(*) from exercises where user_id = $1)
+            + (select count(*) from workouts where user_id = $1)
+            + (select count(*) from templates where user_id = $1)
+            + (select count(*) from profiles where id = $1) as n`,
+      [carol],
+    );
+    expect(Number(r.rows[0].n)).toBe(0);
   });
 });
 

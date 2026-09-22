@@ -136,7 +136,7 @@ like `'chest'` which the SVG diagram also uses. Readable by any signed-in user.
 The ~50 default exercises are **copied into your library** on first sign-in, so you can
 rename them, fix their muscles, or add your own — everything is uniformly "yours".
 Exercises used in history are **archived, never hard-deleted** (the database refuses
-the delete via `ON DELETE RESTRICT`).
+the delete via a deferred `NO ACTION` foreign key, which still lets a whole account be deleted).
 
 **`exercise_muscles`** — `exercise_id`, `muscle_group_id`, `role` (`'primary'|'secondary'`).
 Primary key `(exercise_id, muscle_group_id)`. At least one primary per exercise is enforced
@@ -152,7 +152,7 @@ in the app.
 `started_at`, `finished_at`, `notes`, timestamps. Check: `finished_at >= started_at`.
 
 **`workout_exercises`** — `id`, `workout_id` (cascade delete), `exercise_id`
-(`ON DELETE RESTRICT`), **`exercise_name` (snapshot)**, `position`, `notes`.
+(deletion blocked while referenced), **`exercise_name` (snapshot)**, `position`, `notes`.
 
 **`workout_sets`** — `id`, `workout_exercise_id` (cascade delete), `position`,
 `weight_kg numeric(8,3)`, `reps int`, `rpe numeric(3,1) null`, `is_warmup bool`.
@@ -191,7 +191,8 @@ back to exactly 225 lb on screen.
 index on `(user_id, source, external_id)`, so a future importer can re-run without creating
 duplicates.
 
-All run as `SECURITY INVOKER` (as you), so RLS still applies inside them.
+All user-callable functions run as `SECURITY INVOKER` (as you), so RLS still applies inside
+them. Only the new-user setup trigger runs with elevated rights, and users can't call it.
 
 ## 6. Formulas (documented up front so they're transparent)
 

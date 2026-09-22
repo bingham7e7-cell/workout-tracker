@@ -14,6 +14,8 @@ const toInt = (s: string) => (s.trim() === "" ? null : Number(s));
 
 export function TemplateEditor({ initial }: { initial: (TemplateSummary & { notes: string | null }) | null }) {
   const router = useRouter();
+  // New templates get their id up front, so retrying a save can't create a duplicate.
+  const [templateId] = useState(() => initial?.id ?? crypto.randomUUID());
   const [name, setName] = useState(initial?.name ?? "");
   const [rows, setRows] = useState<Row[]>(
     initial?.exercises.map((e) => ({
@@ -45,7 +47,7 @@ export function TemplateEditor({ initial }: { initial: (TemplateSummary & { note
   async function save() {
     if (busy) return;
     const parsed = templatePayloadSchema.safeParse({
-      id: initial?.id ?? null,
+      id: templateId,
       name,
       notes: initial?.notes ?? null,
       exercises: rows.map((r) => ({ exercise_id: r.exerciseId, target_sets: toInt(r.sets), target_reps: toInt(r.reps) })),

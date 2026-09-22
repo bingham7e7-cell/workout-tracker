@@ -45,12 +45,15 @@ After Stage 1: walk the owner through Supabase setup, merging to main, and Verce
 - PostgreSQL (Supabase) is the source of truth. Schema changes ONLY via new files in
   `supabase/migrations/` (never edit an already-applied migration).
 - Every user-owned row has `user_id` + RLS policy `user_id = auth.uid()`.
-- Proper foreign keys and CHECK constraints; validate input with zod on client and server.
+- Proper foreign keys and CHECK constraints. Validate input with zod in the app; the database
+  (CHECK constraints + Postgres functions) is the server-side validator, since writes go from
+  the browser to Supabase under RLS.
 - Weights are stored in **kg** (`weight_kg numeric(8,3)`); convert to/from the user's
   display unit only at the UI edge.
 - **Warm-up sets are excluded** from volume, PRs, 1RM, and muscle workload. Always.
 - Historical accuracy: workouts snapshot exercise names and template names; exercises with
   history are archived, never deleted; editing templates never changes past workouts.
+- Every create is idempotent: ids for new workouts/templates are generated on the device.
 - Active workout lives on the device (local storage) until Finish. Saving is one
   transactional, idempotent RPC keyed by a client-generated workout UUID
   (duplicate submissions must be impossible). Only clear the local draft after the DB confirms.
@@ -72,6 +75,7 @@ After Stage 1: walk the owner through Supabase setup, merging to main, and Verce
 - Active workout screen: one-handed use, large touch targets (≥44px, prefer 48–56px),
   minimal taps per set, `inputMode="decimal"` for weight and `inputMode="numeric"` for reps.
 - Test layouts at iPhone widths (375–430px). Respect safe-area insets.
+- Format dates/times on the client (`LocalTime`), never in server components (server is UTC).
 
 ## Testing
 `npm test` (Vitest). `npm run build` needs `NEXT_PUBLIC_SUPABASE_URL` and
