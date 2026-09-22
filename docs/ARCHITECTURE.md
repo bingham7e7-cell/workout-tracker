@@ -1,0 +1,229 @@
+# Architecture Proposal
+
+Status: **PROPOSED — awaiting owner approval.** Nothing here is built yet.
+
+## 1. The big picture (plain language)
+
+```
+iPhone (Safari / Home Screen app)
+  │
+  │  Next.js pages (hosted on Vercel)
+  │    • Normal screens (history, templates, analytics) are rendered on the server,
+  │      which reads from the database as *you* (your login), so Row Level Security applies.
+  │    • The ACTIVE WORKOUT screen runs entirely on the phone. Every tap is saved
+  │      to the phone's local storage immediately. Nothing is sent to the database
+  │      until you tap "Finish".
+  │
+  ▼
+Supabase
+  • Auth: email sign-in (magic link + 6-digit code, see Risk #1)
+  • PostgreSQL: the permanent source of truth
+  • Row Level Security: every row has a user_id; you can only ever see your own rows
+```
+
+**Why the active workout lives on the phone until you finish:**
+- Gym Wi-Fi/cell signal is unreliable. Logging a set never waits on the network.
+- Refreshing, closing the tab, or losing signal doesn't lose anything (Stage 3 hardens this).
+- The database only ever contains *finished*, complete workouts — no half-saved junk.
+- Saving becomes one single all-or-nothing database call, which makes duplicate
+  prevention simple (see §4).
+
+## 2. Technology choices
+
+| Concern | Choice | Why |
+|---|---|---|
+| Framework | Next.js (App Router) + TypeScript | Required by spec; one codebase for UI and server code. |
+| Styling | Tailwind CSS | Required; fast to build large, touch-friendly UI. |
+| DB / Auth | Supabase (`@supabase/ssr`, `@supabase/supabase-js`) | Required. Uses only the **public anon/publishable key** — the service-role key is never needed by this app at all. |
+| Input validation | `zod` | One set of rules shared by the browser and the server. The database also enforces its own constraints as a last line of defence. |
+| Mutations | Next.js Server Actions + Postgres functions (RPC) for multi-row saves | Saving a workout touches 3 tables; a Postgres function does it in one transaction. |
+| Charts (Stage 4) | Recharts | Common, simple, React-friendly. |
+| PWA (Stage 3) | Hand-written `manifest.webmanifest` + small service worker | PWA plugins for Next.js break often across versions; a ~50-line worker is easier to maintain. |
+| Unit tests | Vitest | Fast, TypeScript-native. |
+| DB tests | Vitest + **PGlite** (real Postgres compiled to WebAssembly, runs in-process) | Lets us run the real migrations and test the save/edit/duplicate logic and RLS without Docker or a live Supabase project. |
+| Hosting | Vercel | Required. |
+
+Deliberately **not** used: global state libraries (Redux etc.), an ORM (Prisma/Drizzle),
+GraphQL, a separate API server, background jobs. None are needed at this scale.
+
+## 3. Folder layout (planned)
+
+```
+src/
+  app/
+    login/                   email sign-in
+    auth/callback/           magic-link landing route
+    (app)/                   everything behind login
+      page.tsx               home: start workout, recent workouts
+      templates/             list / create / edit / duplicate / delete
+      workout/               ACTIVE workout (client-side)
+      history/               completed workouts; [id] view + edit
+      exercises/             library + per-exercise history (Stage 4)
+      analytics/             PRs, charts (Stage 4), muscle map (Stage 5)
+      settings/              units, export (Stage 6)
+  components/                UI pieces (SetRow, NumberInput, BodyDiagram, ...)
+  lib/
+    supabase/                browser + server client helpers, auth middleware
+    domain/                  PURE functions, no database: units, 1RM, volume,
+                             workload, workout draft reducer, zod schemas
+    data/                    database queries & server actions
+supabase/
+  migrations/                numbered .sql files (schema, RLS, functions, seed)
+tests/                       unit tests + PGlite database tests
+docs/                        SPEC.md, ARCHITECTURE.md, SETUP.md (later)
+```
+
+The math (1RM, volume, workload) lives in `lib/domain` as plain functions so it is easy
+to test and easy to read.
+
+## 4. How saving works (reliability & duplicate prevention)
+
+1. When you start a workout, the phone generates a random ID (UUID) for it.
+2. Sets are stored in local storage as you log them.
+3. "Finish" sends the whole workout to a Postgres function `save_workout(payload)`:
+   - validates input (also validated by zod before sending),
+   - inserts the workout, its exercises and its sets **in one transaction**
+     (all saved or nothing saved),
+   - uses the phone-generated ID as the primary key. If the same workout arrives twice
+     (double tap, retry after a timeout, flaky network), the second call sees the ID
+     already exists and simply returns it — **no duplicate is ever created**.
+4. The Finish button is disabled while saving. If saving fails, the draft stays on the
+   phone and you get a clear "Couldn't save — Retry" message. The draft is only cleared
+   after the database confirms success.
+5. Editing a completed workout uses `update_workout(payload)`, which replaces that
+   workout's exercises and sets in one transaction.
+
+## 5. Database schema
+
+All user-owned tables have a `user_id` column referencing `auth.users`, and an RLS policy
+"`user_id = auth.uid()`" for select/insert/update/delete. Adding more users later requires
+no redesign. Child tables use a **composite foreign key** `(parent_id, user_id)` so a row can
+never point at another user's data, even by a bug.
+
+```
+auth.users (managed by Supabase)
+   │ 1
+   ├──── 1 profiles            (preferred unit)
+   ├──── * exercises ──────* exercise_muscles *──── 1 muscle_groups (shared reference list)
+   ├──── * templates ──────* template_exercises ──→ exercises
+   └──── * workouts  ──────* workout_exercises  ──→ exercises
+                                   └──────* workout_sets
+```
+
+### Tables
+
+**`muscle_groups`** — shared, read-only reference list (~16 rows: chest, front delts,
+side delts, rear delts, biceps, triceps, forearms, upper back/traps, lats, lower back,
+abs, obliques, glutes, quads, hamstrings, calves, adductors). `id` is a text slug
+like `'chest'` which the SVG diagram also uses. Readable by any signed-in user.
+
+**`profiles`** — one row per user: `id` (= auth user id), `weight_unit` (`'kg'|'lb'`),
+`created_at`. Created automatically on first sign-in by a database trigger.
+
+**`exercises`** — the library: `id`, `user_id`, `name`, `equipment` (optional),
+`archived_at` (null = active), timestamps. Unique on `(user_id, lower(name))`.
+The ~50 default exercises are **copied into your library** on first sign-in, so you can
+rename them, fix their muscles, or add your own — everything is uniformly "yours".
+Exercises used in history are **archived, never hard-deleted** (the database refuses
+the delete via `ON DELETE RESTRICT`).
+
+**`exercise_muscles`** — `exercise_id`, `muscle_group_id`, `role` (`'primary'|'secondary'`).
+Primary key `(exercise_id, muscle_group_id)`. At least one primary per exercise is enforced
+in the app.
+
+**`templates`** — `id`, `user_id`, `name`, `notes`, timestamps.
+
+**`template_exercises`** — `id`, `template_id` (cascade delete), `exercise_id`, `position`,
+`target_sets` (optional), `target_reps` (optional). Duplicating a template = copying these rows.
+
+**`workouts`** — completed workouts only. `id` (client-generated UUID), `user_id`,
+`template_id` (nullable, `ON DELETE SET NULL`), `name` (snapshot, e.g. "Push Day"),
+`started_at`, `finished_at`, `notes`, timestamps. Check: `finished_at >= started_at`.
+
+**`workout_exercises`** — `id`, `workout_id` (cascade delete), `exercise_id`
+(`ON DELETE RESTRICT`), **`exercise_name` (snapshot)**, `position`, `notes`.
+
+**`workout_sets`** — `id`, `workout_exercise_id` (cascade delete), `position`,
+`weight_kg numeric(8,3)`, `reps int`, `rpe numeric(3,1) null`, `is_warmup bool`.
+Checks: `weight_kg between 0 and 1000`, `reps between 0 and 200`,
+`rpe between 1 and 10` in 0.5 steps.
+
+### How historical accuracy is guaranteed
+- Workouts **copy** exercises from a template when started; later template edits or
+  deletes don't touch past workouts (`template_id` just becomes null, the name snapshot stays).
+- Each logged exercise stores the exercise **name as it was that day**.
+- Exercises that have history can only be archived, never deleted.
+- Muscle mappings are *not* snapshotted: if you correct an exercise's muscles, the
+  (derived, estimated) workload map uses the corrected mapping. The recorded
+  weights/reps/sets never change.
+
+### Weight units
+All weights are stored in **kilograms** (`weight_kg`, 3 decimals) regardless of display
+unit, so data is always consistent. Your preferred unit (`profiles.weight_unit`) controls
+what you type and see; conversion happens at the edges. 3 decimals means 225 lb round-trips
+back to exactly 225 lb on screen.
+
+### Postgres functions
+- `save_workout(payload jsonb)` — idempotent insert (see §4).
+- `update_workout(payload jsonb)` — transactional replace of a workout's contents.
+- `handle_new_user()` trigger — creates profile + copies default exercises.
+
+All run as `SECURITY INVOKER` (as you), so RLS still applies inside them.
+
+## 6. Formulas (documented up front so they're transparent)
+
+**Estimated 1RM — Epley:** `e1RM = weight × (1 + reps / 30)`; for 1 rep, `e1RM = weight`.
+Only computed for working sets with 1–12 reps (accuracy drops sharply above ~12).
+
+**Volume:** `Σ weight × reps` over working (non-warm-up) sets.
+
+**Muscle workload (Stage 5):** for each working set in the last 7 days, for each muscle it hits:
+
+```
+contribution = effort × role × recency
+  effort  = RPE known ? clamp(RPE / 10, 0.5, 1.0) : 0.8
+  role    = 1.0 if primary muscle, 0.5 if secondary
+  recency = 0.5 ^ (hours since workout finished / 48)   (halves every 48 h)
+muscle workload = sum of contributions  ("effective recent sets")
+```
+
+Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high.
+The screen will state this is an estimate of recent training exposure, **not** medical
+recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is documented.
+
+## 7. Assumptions, risks, and complexity traps
+
+### Assumptions (tell me if any are wrong)
+1. **Unit:** the spec left "[lbs or kg]" unfilled. Plan: store kg, display your choice,
+   default **lb** (changeable in Settings). → *Please confirm your unit.*
+2. **Bodyweight exercises** (pull-ups, dips): you enter *added* weight (0 for bodyweight).
+   Volume for those will show as 0 unless added load is used. Tracking bodyweight is out of scope.
+3. Only **finished** workouts go to the database; an in-progress workout exists only on
+   the device where you started it.
+4. Only weight/reps/RPE/warm-up per set. No supersets, tempo, distance/time, or cardio.
+5. One user now; no admin screens.
+
+### Risks
+1. **Magic links + iPhone Home Screen apps don't mix well.** An installed PWA has storage
+   separate from Safari. Tapping the link in the email opens *Safari*, so you'd be signed
+   in there but not in the Home Screen app. **Mitigation:** the login screen also accepts
+   the **6-digit code** from the same email (a Supabase feature; needs a one-line email
+   template change I'll walk you through). You type the code inside the app. Sessions last
+   a long time, so this is rare.
+2. **iOS may clear website storage** for sites not used in a while. Installed Home Screen
+   apps are treated better, and drafts are only needed for the duration of a workout, so
+   the practical risk is small. The database remains the source of truth.
+3. **Supabase free tier pauses projects after ~1 week of inactivity.** If you take a
+   break, you may need to click "Restore" in the Supabase dashboard. Your data is kept.
+4. **Supabase's built-in email sender is rate-limited** (a few emails per hour). Fine for
+   one user; if it becomes annoying, a custom SMTP can be added later.
+5. **Next.js changes quickly;** we'll pin versions in `package-lock.json`.
+
+### Complexity I'm intentionally avoiding
+- No full offline-first sync engine. Only the *active* workout is preserved offline;
+  history and analytics require a connection. This covers the spec with ~5% of the effort.
+- No per-set network saves during a workout (one save at the end).
+- Analytics are computed in TypeScript from your sets, not with complex SQL views or
+  pre-computed tables. A single user's data (even years) is small enough.
+- No custom muscle-mapping snapshots per workout (see §5).
+- No service-role key anywhere; no admin backend.
