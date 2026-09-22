@@ -1,6 +1,17 @@
-# Architecture Proposal
+# Architecture
 
-Status: **PROPOSED — awaiting owner approval.** Nothing here is built yet.
+Status: **APPROVED** (2026-09-22). Stage 1 built.
+
+Owner decisions:
+- Both lb and kg are supported; **lb is the default** (changeable in Settings).
+- **Dark theme** only.
+- No data import now, but the schema is import-ready (`workouts.source` + `external_id`).
+- **Stage 2 addition:** a rotating "program" (ordered list of templates, home screen shows
+  "Next up: Day 4"). One small extra table.
+- **Stage 3 addition:** keep an offline copy of templates, exercise library, and previous
+  values on the phone so a workout from *any* template can be started with no signal;
+  finishing offline keeps the workout on the phone with a "not saved yet" state and saves it
+  when back online.
 
 ## 1. The big picture (plain language)
 
@@ -36,7 +47,7 @@ Supabase
 | Styling | Tailwind CSS | Required; fast to build large, touch-friendly UI. |
 | DB / Auth | Supabase (`@supabase/ssr`, `@supabase/supabase-js`) | Required. Uses only the **public anon/publishable key** — the service-role key is never needed by this app at all. |
 | Input validation | `zod` | One set of rules shared by the browser and the server. The database also enforces its own constraints as a last line of defence. |
-| Mutations | Next.js Server Actions + Postgres functions (RPC) for multi-row saves | Saving a workout touches 3 tables; a Postgres function does it in one transaction. |
+| Reads / writes | Pages read on the server (as the signed-in user). Writes go from the browser straight to Supabase: Postgres functions (RPC) for multi-row saves, plain deletes otherwise. | One simple pattern. RLS protects every call. Saving a workout touches 3 tables, so a Postgres function does it in one transaction. Browser-side saves also work with the offline retry in Stage 3. |
 | Charts (Stage 4) | Recharts | Common, simple, React-friendly. |
 | PWA (Stage 3) | Hand-written `manifest.webmanifest` + small service worker | PWA plugins for Next.js break often across versions; a ~50-line worker is easier to maintain. |
 | Unit tests | Vitest | Fast, TypeScript-native. |
@@ -46,13 +57,13 @@ Supabase
 Deliberately **not** used: global state libraries (Redux etc.), an ORM (Prisma/Drizzle),
 GraphQL, a separate API server, background jobs. None are needed at this scale.
 
-## 3. Folder layout (planned)
+## 3. Folder layout
 
 ```
 src/
   app/
     login/                   email sign-in
-    auth/callback/           magic-link landing route
+    auth/confirm/            magic-link landing route
     (app)/                   everything behind login
       page.tsx               home: start workout, recent workouts
       templates/             list / create / edit / duplicate / delete
@@ -70,7 +81,7 @@ src/
 supabase/
   migrations/                numbered .sql files (schema, RLS, functions, seed)
 tests/                       unit tests + PGlite database tests
-docs/                        SPEC.md, ARCHITECTURE.md, SETUP.md (later)
+docs/                        SPEC.md, ARCHITECTURE.md, SETUP.md
 ```
 
 The math (1RM, volume, workload) lives in `lib/domain` as plain functions so it is easy
@@ -145,8 +156,9 @@ in the app.
 
 **`workout_sets`** — `id`, `workout_exercise_id` (cascade delete), `position`,
 `weight_kg numeric(8,3)`, `reps int`, `rpe numeric(3,1) null`, `is_warmup bool`.
-Checks: `weight_kg between 0 and 1000`, `reps between 0 and 200`,
-`rpe between 1 and 10` in 0.5 steps.
+Checks: `weight_kg between 0 and 1000`, `reps between 0 and 999` (the app requires ≥ 1;
+0 is allowed in the DB for future imports of failed attempts), `rpe between 1 and 10` in 0.5
+steps. Only sets that were ticked ✓ are saved.
 
 ### How historical accuracy is guaranteed
 - Workouts **copy** exercises from a template when started; later template edits or
@@ -165,8 +177,19 @@ back to exactly 225 lb on screen.
 
 ### Postgres functions
 - `save_workout(payload jsonb)` — idempotent insert (see §4).
-- `update_workout(payload jsonb)` — transactional replace of a workout's contents.
-- `handle_new_user()` trigger — creates profile + copies default exercises.
+- `update_workout(payload jsonb)` — transactional replace of a workout's contents
+  (DB function built and tested in Stage 1; the editing screen arrives in Stage 2).
+- `save_template(payload jsonb)` — create/update a template and its exercise list.
+- `create_exercise(payload jsonb)` — custom exercise + its muscle mapping in one step.
+- `app_private.provision_user()` via an `auth.users` trigger — creates the profile and copies
+  the default exercise library (stored in `app_private.default_exercises`).
+
+`app_private` is a schema Supabase does not expose over its API.
+
+### Import-readiness
+`workouts.source` (`'app'`, or e.g. `'import:strong'`) and `workouts.external_id` with a unique
+index on `(user_id, source, external_id)`, so a future importer can re-run without creating
+duplicates.
 
 All run as `SECURITY INVOKER` (as you), so RLS still applies inside them.
 

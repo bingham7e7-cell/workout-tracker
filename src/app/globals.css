@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* Dark theme only: easier to read in the gym, and kinder to iPhone batteries. */
+:root {
+  color-scheme: dark;
+}
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-zinc-950);
+  color: var(--color-zinc-100);
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* iOS zooms into inputs smaller than 16px; keep all form fields at least 16px. */
+input,
+select,
+textarea {
+  font-size: max(16px, 1em);
+}
+
+/* Hide number-field spinners (we use inputMode, but just in case). */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}

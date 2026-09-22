@@ -5,6 +5,8 @@ Stack: Next.js (App Router) + TypeScript + Tailwind CSS + Supabase (Auth + Postg
 
 - Full spec: `docs/SPEC.md` (source of truth for scope).
 - Architecture & schema: `docs/ARCHITECTURE.md` (keep it updated when design changes).
+- Owner setup steps: `docs/SETUP.md` (keep in sync when setup changes).
+- Next.js 16 notes (proxy.ts instead of middleware, etc.): see @AGENTS.md.
 
 ## The owner
 - Not a professional developer. Explain decisions in plain language.
@@ -72,7 +74,9 @@ After Stage 1: walk the owner through Supabase setup, merging to main, and Verce
 - Test layouts at iPhone widths (375–430px). Respect safe-area insets.
 
 ## Testing
-Vitest. Pure logic in `src/lib/domain` gets unit tests. Database functions
+`npm test` (Vitest). `npm run build` needs `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` set (any dummy values work for a build check).
+Pure logic in `src/lib/domain` gets unit tests. Database functions
 (save/edit workout, set saving, duplicate prevention, RLS) are tested against the real
 migrations using PGlite. Required coverage: saving workouts, saving sets, editing workouts,
 workload calc, 1RM calc, duplicate-save prevention.
