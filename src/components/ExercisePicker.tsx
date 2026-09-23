@@ -2,16 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { readOfflineExercises, writeOfflineExercises, type CachedExercise } from "@/lib/client/exerciseLibraryCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
 import { exerciseInputSchema, firstIssue } from "@/lib/domain/schemas";
 
 export type PickedExercise = { exerciseId: string; name: string };
-type Exercise = { id: string; name: string; equipment: string | null };
+type Exercise = CachedExercise;
 type Muscle = { id: string; name: string };
 
 const EQUIPMENT = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "EZ Bar", "Kettlebell", "Other"];
 
-// Cached for the session so reopening the picker is instant.
+// Cached for the session so reopening the picker is instant. The on-device (offline)
+// copy lives in lib/client/exerciseLibraryCache so it can be cleared on sign-out.
 let exerciseCache: Exercise[] | null = null;
 
 async function fetchExercises(): Promise<Exercise[]> {
@@ -21,14 +23,23 @@ async function fetchExercises(): Promise<Exercise[]> {
     .is("archived_at", null)
     .order("name")
     .abortSignal(timeoutSignal());
-  if (error) throw error;
+  if (error) {
+    // Offline or the request failed: fall back to what was cached last time it worked.
+    const offline = readOfflineExercises();
+    if (offline) {
+      exerciseCache = offline;
+      return offline;
+    }
+    throw error;
+  }
   exerciseCache = data;
+  writeOfflineExercises(data);
   return data;
 }
 
 /** Full-screen, searchable exercise list with "create new exercise". */
 export function ExercisePicker({ onPick, onClose }: { onPick: (e: PickedExercise) => void; onClose: () => void }) {
-  const [exercises, setExercises] = useState<Exercise[] | null>(exerciseCache);
+  const [exercises, setExercises] = useState<Exercise[] | null>(() => exerciseCache ?? readOfflineExercises());
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -43,8 +54,10 @@ export function ExercisePicker({ onPick, onClose }: { onPick: (e: PickedExercise
     );
   }
 
+  // Always refresh in the background (the offline copy can be stale), but the
+  // offline/in-memory copy above already lets the picker render instantly.
   useEffect(() => {
-    if (!exerciseCache) load();
+    load();
   }, []);
 
   const filtered = useMemo(() => {
@@ -135,14 +148,21 @@ function CreateExerciseForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function fetchMuscles() {
     getSupabaseBrowser()
       .from("muscle_groups")
       .select("id, name")
       .order("sort_order")
       .abortSignal(timeoutSignal())
       .then(({ data, error }) => (error ? setError(describeError(error)) : setMuscles(data)));
-  }, []);
+  }
+
+  function retryMuscles() {
+    setError(null);
+    fetchMuscles();
+  }
+
+  useEffect(fetchMuscles, []);
 
   // Tap cycles: none → primary → secondary → none.
   function cycle(id: string) {
@@ -205,6 +225,7 @@ function CreateExerciseForm({
           Muscles — tap once for <span className="text-emerald-400">primary</span>, twice for{" "}
           <span className="text-sky-400">secondary</span>.
         </p>
+        {!muscles && !error && <p className="text-sm text-zinc-500">Loading muscles…</p>}
         <div className="flex flex-wrap gap-2">
           {muscles?.map((m) => (
             <button
@@ -224,12 +245,21 @@ function CreateExerciseForm({
           ))}
         </div>
       </div>
-      {error && <p className="rounded-lg bg-red-950 p-3 text-red-200">{error}</p>}
+      {error && (
+        <div className="rounded-lg bg-red-950 p-3 text-red-200">
+          {error}
+          {!muscles && (
+            <button type="button" onClick={retryMuscles} className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex gap-2">
         <button type="button" onClick={onCancel} className="h-12 flex-1 rounded-xl bg-zinc-800">
           Back
         </button>
-        <button disabled={busy} className="h-12 flex-1 rounded-xl bg-emerald-500 font-semibold text-zinc-950 disabled:opacity-50">
+        <button disabled={busy || !muscles} className="h-12 flex-1 rounded-xl bg-emerald-500 font-semibold text-zinc-950 disabled:opacity-50">
           {busy ? "Saving…" : "Create"}
         </button>
       </div>

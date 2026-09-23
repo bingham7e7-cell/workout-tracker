@@ -1,7 +1,32 @@
 # Workout Tracker — Original Specification
 
-> This is the original product specification, saved verbatim. It is the source of truth
-> for scope. Reviewers check each stage against this document.
+> This is the original product specification, saved verbatim below. It is the source of truth
+> for scope. Reviewers check each stage against this document, read together with the
+> "Updates since the original spec" section right below.
+
+## Updates since the original spec (2026-09-23)
+
+The owner has confirmed two changes to how the app is used, made **after** Stage 1 shipped.
+They don't change the database schema or require any redesign — the schema was already built
+multi-user-ready per the original spec's last line ("structure the database so multiple users
+could be supported later without requiring a major redesign").
+
+1. **The app is now multi-user for real.** Other people besides the owner will sign up and use
+   it. Every table already has `user_id` + a Row Level Security policy restricting rows to
+   `user_id = auth.uid()` (see `docs/ARCHITECTURE.md` §5), so one user can never see another's
+   data. Because of this:
+   - `docs/SETUP.md` step 9 ("turn off new sign-ups") no longer applies and has been removed —
+     new sign-ups must stay **on**.
+   - There are no admin screens or ability for the owner to see other users' data — nobody
+     gets special access, including the owner. That was true from Stage 1 and remains true.
+2. **Sign-in is the 6-digit emailed code** (Supabase OTP), sent through **Resend SMTP** on the
+   owner's own domain rather than Supabase's shared, rate-limited sender. This was already
+   built in Stage 1 (`src/app/login/page.tsx`, `docs/SETUP.md` §3.5–4) as the fix for the
+   "magic links don't work in an installed iPhone Home Screen app" risk identified in
+   `docs/ARCHITECTURE.md` §7. The original spec's "email magic link" line below is superseded
+   by this; the magic link still works as a fallback in Safari.
+
+Nothing else about scope, staging, or priorities changes.
 
 Build a mobile-first personal strength-training progressive web app using Next.js, TypeScript, Tailwind CSS, Supabase, and PostgreSQL.
 

@@ -201,7 +201,7 @@ Only computed for working sets with 1–12 reps (accuracy drops sharply above ~1
 
 **Volume:** `Σ weight × reps` over working (non-warm-up) sets.
 
-**Muscle workload (Stage 5):** for each working set in the last 7 days, for each muscle it hits:
+**Muscle workload (Stage 5, built):** for each working set in the last 21 days, for each muscle it hits:
 
 ```
 contribution = effort × role × recency
@@ -212,8 +212,47 @@ muscle workload = sum of contributions  ("effective recent sets")
 ```
 
 Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high.
-The screen will state this is an estimate of recent training exposure, **not** medical
-recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is documented.
+The screen states this is an estimate of recent training exposure, **not** medical
+recovery or readiness.
+
+The 21-day query window (not 7) is intentional: with a 48-hour half-life, a set is
+still worth ~9–13% of its starting contribution at day 6–7, so a hard 7-day cutoff
+would visibly and abruptly drop weight that should still be fading out smoothly. 21
+days is where a contribution is under 0.1% of its start — effectively zero — so
+nothing the formula would otherwise count is missed.
+
+## 6.5. Offline support (Stage 3, built)
+
+- **Service worker** (`public/sw.js`, ~50 lines): network-first, cache-fallback for every
+  same-origin GET request. No build-time precache list (Next's static filenames are
+  content-hashed per deploy) — pages and assets are cached as they're actually visited.
+  Supabase calls are a different origin, so the worker never touches saving/loading real
+  data; it only lets the last-visited screens (and the JS/CSS needed to run them) open
+  with no signal. `manifest.webmanifest` + the icons in `public/icons/` make the app
+  installable from Safari.
+- **Exercise library & "last time" values**: cached in `localStorage`
+  (`src/components/ExercisePicker.tsx`, `src/lib/client/previousSetsCache.ts`) on every
+  successful fetch, read back instantly on the next load, and refreshed in the background
+  when online. Templates need no separate cache — they arrive embedded in the home page's
+  own HTML, which the service worker already caches.
+- **Finishing offline**: tapping Finish immediately marks the draft `finishedAt` in local
+  storage, before the network call — so closing the app mid-failure still shows "finished,
+  not saved yet" rather than reverting to "in progress". The workout screen retries the
+  same idempotent `save_workout`/`update_workout` RPCs automatically on load, on the
+  browser's `online` event, and every 20s in between (iOS doesn't always fire `online`
+  reliably), until it succeeds.
+- **Sign-out clears all three on-device caches** (`SettingsForm.tsx`'s `signOut()`): the
+  exercise-library cache, the previous-values cache, and the service worker's whole
+  Cache Storage. This is what actually protects a shared phone — as long as the
+  previous person signs out first, the next account starts from nothing cached and
+  refetches everything online before anything offline-dependent is shown.
+- **Known limitation**: this only helps if the previous person actually signs out.
+  The service worker's page cache is keyed by URL only, not by account, so if someone
+  closes the app without signing out and a different account signs in on the same
+  phone and browser, the very first offline screen before the next successful online
+  load could briefly show the previous account's last-cached page. Not a concern for
+  one person per phone (the expected case); flagged here rather than solved further,
+  per CLAUDE.md's "avoid overengineering."
 
 ## 7. Assumptions, risks, and complexity traps
 
@@ -225,7 +264,8 @@ recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is d
 3. Only **finished** workouts go to the database; an in-progress workout exists only on
    the device where you started it.
 4. Only weight/reps/RPE/warm-up per set. No supersets, tempo, distance/time, or cardio.
-5. One user now; no admin screens.
+5. Multi-user in practice now (you plus anyone else who signs up); still no admin screens —
+   Row Level Security is the only thing that scopes data per user, by design.
 
 ### Risks
 1. **Magic links + iPhone Home Screen apps don't mix well.** An installed PWA has storage

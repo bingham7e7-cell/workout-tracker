@@ -2,15 +2,21 @@ import { describe, expect, test } from "vitest";
 import {
   addExercise,
   addSet,
+  cancelFinishing,
   countSets,
   createDraft,
+  editDraftFromWorkout,
+  markFinishing,
   moveExercise,
   parseNumber,
   removeExercise,
   removeSet,
+  setPreviousSets,
+  summarizePreviousSets,
   toSavePayload,
   toggleSetDone,
   updateSet,
+  type PreviousSet,
   type WorkoutDraft,
 } from "@/lib/domain/draft";
 
@@ -177,5 +183,148 @@ describe("building the save payload", () => {
     if ("error" in r) throw new Error(r.error);
     expect(r.payload.name).toBe("Workout");
     expect(r.payload.finished_at).toBe(r.payload.started_at);
+  });
+
+  test("notes pass through unchanged when provided", () => {
+    let d = templateDraft();
+    const ex = d.exercises[0];
+    d = updateSet(d, ex.key, ex.sets[0].key, { weight: "100" });
+    d = toggleSetDone(d, ex.key, ex.sets[0].key).draft;
+    const r = toSavePayload(d, new Date("2026-09-01T11:00:00Z"), "Felt strong today");
+    if ("error" in r) throw new Error(r.error);
+    expect(r.payload.notes).toBe("Felt strong today");
+  });
+});
+
+describe("previous-session values", () => {
+  const PREVIOUS: PreviousSet[] = [
+    { weightKg: 61.235, reps: 5, rpe: null, isWarmup: true },
+    { weightKg: 102.058, reps: 5, rpe: 8.5, isWarmup: false },
+  ];
+
+  test("setPreviousSets records what was fetched for an exercise", () => {
+    let d = templateDraft();
+    const ex = d.exercises[0];
+    expect(ex.previous).toBeUndefined();
+    d = setPreviousSets(d, ex.key, PREVIOUS);
+    expect(d.exercises[0].previous).toEqual(PREVIOUS);
+    d = setPreviousSets(d, ex.key, null);
+    expect(d.exercises[0].previous).toBeNull();
+  });
+
+  test("summarizePreviousSets formats weight, warm-up and RPE", () => {
+    expect(summarizePreviousSets(PREVIOUS, "lb")).toBe("135×5 (W), 225×5 @8.5");
+    expect(summarizePreviousSets(PREVIOUS, "kg")).toBe("61.24×5 (W), 102.06×5 @8.5");
+  });
+});
+
+describe("finishing offline (Stage 3)", () => {
+  test("markFinishing/cancelFinishing toggle a fixed finish time on the draft", () => {
+    const original = templateDraft();
+    let d = markFinishing(original, "2026-09-01T11:00:00.000Z");
+    expect(d.finishedAt).toBe("2026-09-01T11:00:00.000Z");
+    // Everything else about the draft (id, exercises, sets) is untouched.
+    expect(d.id).toBe(original.id);
+    expect(d.exercises).toEqual(original.exercises);
+    d = cancelFinishing(d);
+    expect(d.finishedAt).toBeUndefined();
+    expect("finishedAt" in d).toBe(false);
+  });
+
+  test("a retry after marking finishing reuses the fixed finish time, not the retry time", () => {
+    let d = templateDraft();
+    const ex = d.exercises[0];
+    d = updateSet(d, ex.key, ex.sets[0].key, { weight: "100" });
+    d = toggleSetDone(d, ex.key, ex.sets[0].key).draft;
+    d = markFinishing(d, "2026-09-01T11:00:00.000Z");
+
+    const laterRetryTime = new Date("2026-09-01T11:05:00.000Z");
+    const r = toSavePayload(d, new Date(d.finishedAt!));
+    if ("error" in r) throw new Error(r.error);
+    expect(r.payload.finished_at).toBe("2026-09-01T11:00:00.000Z");
+    expect(r.payload.finished_at).not.toBe(laterRetryTime.toISOString());
+  });
+});
+
+describe("editing a saved workout", () => {
+  test("editDraftFromWorkout converts saved sets to a draft, all already logged", () => {
+    const d = editDraftFromWorkout(
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        name: "Push Day",
+        startedAt: "2026-09-01T10:00:00.000Z",
+        finishedAt: "2026-09-01T11:00:00.000Z",
+        notes: "Good session",
+        exercises: [
+          {
+            exerciseId: BENCH,
+            name: "Barbell Bench Press",
+            sets: [
+              { weightKg: 61.235, reps: 5, rpe: null, isWarmup: true },
+              { weightKg: 102.058, reps: 5, rpe: 8.5, isWarmup: false },
+            ],
+          },
+        ],
+      },
+      "lb",
+    );
+    expect(d.id).toBe("44444444-4444-4444-8444-444444444444");
+    expect(d.name).toBe("Push Day");
+    expect(d.startedAt).toBe("2026-09-01T10:00:00.000Z");
+    expect(d.exercises[0].sets.map((s) => [s.weight, s.reps, s.rpe, s.isWarmup, s.done])).toEqual([
+      ["135", "5", null, true, true],
+      ["225", "5", 8.5, false, true],
+    ]);
+  });
+
+  test("round-trips back to the same payload via toSavePayload", () => {
+    const d = editDraftFromWorkout(
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        name: "Push Day",
+        startedAt: "2026-09-01T10:00:00.000Z",
+        finishedAt: "2026-09-01T11:00:00.000Z",
+        notes: null,
+        exercises: [
+          {
+            exerciseId: BENCH,
+            name: "Barbell Bench Press",
+            sets: [{ weightKg: 102.058, reps: 5, rpe: null, isWarmup: false }],
+          },
+        ],
+      },
+      "lb",
+    );
+    const r = toSavePayload(d, new Date("2026-09-01T11:00:00.000Z"));
+    if ("error" in r) throw new Error(r.error);
+    expect(r.payload.exercises).toEqual([
+      { exercise_id: BENCH, notes: null, sets: [{ weight_kg: 102.058, reps: 5, rpe: null, is_warmup: false }] },
+    ]);
+  });
+
+  test("unchecking a set removes it when saved; deleting all sets blocks saving", () => {
+    let d = editDraftFromWorkout(
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        name: "Push Day",
+        startedAt: "2026-09-01T10:00:00.000Z",
+        finishedAt: "2026-09-01T11:00:00.000Z",
+        notes: null,
+        exercises: [
+          {
+            exerciseId: BENCH,
+            name: "Barbell Bench Press",
+            sets: [{ weightKg: 102.058, reps: 5, rpe: null, isWarmup: false }],
+          },
+        ],
+      },
+      "lb",
+    );
+    const ex = d.exercises[0];
+    d = toggleSetDone(d, ex.key, ex.sets[0].key).draft;
+    expect(countSets(d)).toEqual({ logged: 0, unlogged: 1 });
+    expect(toSavePayload(d, new Date("2026-09-01T11:00:00Z"))).toEqual({
+      error: "Log at least one set before finishing",
+    });
   });
 });

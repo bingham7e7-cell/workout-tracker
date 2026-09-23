@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { clearOfflineExercises } from "@/lib/client/exerciseLibraryCache";
+import { clearPreviousSetsCache } from "@/lib/client/previousSetsCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
+import { ExportDataButtons } from "@/components/ExportDataButtons";
 import type { WeightUnit } from "@/lib/domain/units";
 
 export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; email: string }) {
@@ -32,6 +35,15 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
 
   async function signOut() {
     await getSupabaseBrowser().auth.signOut();
+    // These caches (Stage 3, offline support) hold this account's exercise names and
+    // recent set history. Clear them so a shared phone never shows one person's data
+    // to the next account before the first background refresh completes.
+    clearOfflineExercises();
+    clearPreviousSetsCache();
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
     router.replace("/login");
     router.refresh();
   }
@@ -57,6 +69,8 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
         </div>
         {error && <p className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">{error}</p>}
       </section>
+
+      <ExportDataButtons />
 
       <section>
         <h2 className="mb-1 font-semibold">Account</h2>

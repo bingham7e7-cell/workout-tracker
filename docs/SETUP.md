@@ -159,26 +159,32 @@ Supabase only sends sign-in links that point to websites you've approved.
 4. You should see the **Workouts** home screen. Tap **Templates** and check that you can add
    exercises from the library.
 
-## 9. Lock the door (turn off new sign-ups)
+## 9. This app is multi-user — sign-ups stay on
 
-Your site is public, so anyone who finds the address could create their own account. They
-could never see your data, but they could use up your free quota. Now that your account exists:
+Your site is public, and that's intentional: other people can sign up and use it too. Each
+person only ever sees their own workouts, templates and exercises — the database enforces
+this with Row Level Security, not just app code, so there's no admin view and no way for
+anyone (including you) to see someone else's data. Leave **"Allow new users to sign up"**
+turned on in **Authentication → Sign In / Providers**.
 
-1. In Supabase, go to **Authentication → Sign In / Providers**.
-2. Turn **off** "Allow new users to sign up" and click **Save**.
-
-You can still sign in, because this only blocks *new* accounts.
+If it ever becomes a problem (spam sign-ups, hitting your free-tier email quota via Resend),
+you can turn it off there at any time — existing accounts keep working either way.
 
 ## 10. Add to your iPhone Home Screen
 
-1. In Safari, with the app open, tap the **Share** button (a square with an arrow).
-2. Scroll down, tap **Add to Home Screen**, then **Add**.
+1. Open the app in Safari **at least once while online** first — this lets it cache
+   what it needs to open later with no signal.
+2. Tap the **Share** button (a square with an arrow), scroll down, tap **Add to Home
+   Screen**, then **Add**.
 3. Open it from the Home Screen. The first time, you'll need to sign in again: type the
    **code** from the email. The link would open Safari instead of the app.
 
-> Stage 3 adds the proper app icon and the offline features. Until then, the Home Screen app
-> needs an internet connection to open, but a workout in progress is already kept on the phone
-> if the page refreshes or the signal drops.
+Once installed, a workout can be started, logged, and finished with no signal (gym
+basements are the whole point of this): weight/rep entry, the exercise picker, and
+"last time" hints all work offline after that first online visit, and a finished
+workout that couldn't reach the database yet is kept on the phone and saved
+automatically as soon as you're back online. Only history, analytics and account
+changes need a connection.
 
 ---
 

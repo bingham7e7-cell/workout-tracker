@@ -387,6 +387,49 @@ describe("account deletion", () => {
   });
 });
 
+describe("previous exercise sets (Stage 2: previous-values display)", () => {
+  test("returns only the most recent workout's sets per exercise, scoped to the caller", async () => {
+    const bench = await exerciseId(alice, "Barbell Bench Press");
+    const row = await exerciseId(alice, "Barbell Row");
+
+    const first = await buildPayload(alice);
+    await saveWorkout(alice, first);
+
+    // A second, later bench session with different numbers.
+    let draft: WorkoutDraft = createDraft({
+      name: "Push 2",
+      templateId: null,
+      unit: "lb",
+      exercises: [{ exerciseId: bench, name: "Barbell Bench Press", targetSets: 1, targetReps: 3 }],
+      now: new Date("2026-09-03T10:00:00Z"),
+    });
+    const ex = draft.exercises[0];
+    draft = updateSet(draft, ex.key, ex.sets[0].key, { weight: "235" });
+    draft = toggleSetDone(draft, ex.key, ex.sets[0].key).draft;
+    const second = toSavePayload(draft, new Date("2026-09-03T10:30:00Z"));
+    if ("error" in second) throw new Error(second.error);
+    await saveWorkout(alice, second.payload);
+
+    const result = await db.asUser(alice, () =>
+      db.query<{ exercise_id: string; sets: { weight_kg: number; reps: number; rpe: number | null; is_warmup: boolean }[] }>(
+        "select exercise_id, sets from previous_exercise_sets($1::uuid[])",
+        [[bench, row]],
+      ),
+    );
+    const byExercise = Object.fromEntries(result.rows.map((r) => [r.exercise_id, r.sets]));
+    // Bench: the later (second) session's single set, not the first session's three.
+    expect(byExercise[bench]).toEqual([{ weight_kg: 106.594, reps: 3, rpe: null, is_warmup: false }]);
+    // Row: only ever logged in the first session.
+    expect(byExercise[row]).toEqual([{ weight_kg: 83.915, reps: 8, rpe: null, is_warmup: false }]);
+
+    // Bob has never done these exercises.
+    const bobResult = await db.asUser(bob, () =>
+      db.query<{ exercise_id: string }>("select exercise_id from previous_exercise_sets($1::uuid[])", [[bench, row]]),
+    );
+    expect(bobResult.rows).toEqual([]);
+  });
+});
+
 describe("custom exercises", () => {
   test("create_exercise stores the exercise and its muscles; duplicate names are rejected", async () => {
     const create = () =>

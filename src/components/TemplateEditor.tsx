@@ -73,6 +73,26 @@ export function TemplateEditor({ initial }: { initial: (TemplateSummary & { note
     router.refresh();
   }
 
+  async function duplicate() {
+    if (!initial || busy) return;
+    const parsed = templatePayloadSchema.safeParse({
+      id: crypto.randomUUID(),
+      name: `${name} copy`.slice(0, 100),
+      notes: initial.notes,
+      exercises: rows.map((r) => ({ exercise_id: r.exerciseId, target_sets: toInt(r.sets), target_reps: toInt(r.reps) })),
+    });
+    if (!parsed.success) return setError(firstIssue(parsed.error));
+    setBusy(true);
+    setError(null);
+    const { error } = await getSupabaseBrowser()
+      .rpc("save_template", { p_template: parsed.data })
+      .abortSignal(timeoutSignal());
+    setBusy(false);
+    if (error) return setError(describeError(error));
+    router.push(`/templates/${parsed.data.id}`);
+    router.refresh();
+  }
+
   async function remove() {
     if (!initial || busy) return;
     if (!window.confirm(`Delete the template "${initial.name}"?\n\nPast workouts are not affected.`)) return;
@@ -154,9 +174,14 @@ export function TemplateEditor({ initial }: { initial: (TemplateSummary & { note
         {busy ? "Saving…" : "Save template"}
       </button>
       {initial && (
-        <button onClick={remove} disabled={busy} className="h-12 w-full text-red-400">
-          Delete template
-        </button>
+        <div className="flex gap-2">
+          <button onClick={duplicate} disabled={busy} className="h-12 flex-1 rounded-xl bg-zinc-800 font-medium disabled:opacity-50">
+            Duplicate
+          </button>
+          <button onClick={remove} disabled={busy} className="h-12 flex-1 text-red-400 disabled:opacity-50">
+            Delete template
+          </button>
+        </div>
       )}
 
       {picking && (
