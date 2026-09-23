@@ -11,6 +11,10 @@ create table app_private.default_exercises (
   primary_muscles    text[] not null,
   secondary_muscles  text[] not null default '{}'
 );
+-- Internal reference data: only the new-user setup function reads it.
+-- RLS on with no policies + no grants = app users can never read or change it.
+alter table app_private.default_exercises enable row level security;
+revoke all on app_private.default_exercises from public, anon, authenticated;
 
 insert into app_private.default_exercises (name, equipment, primary_muscles, secondary_muscles) values
   -- Chest
