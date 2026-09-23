@@ -3,14 +3,14 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { LocalTime } from "@/components/LocalTime";
 import { ProgressChart, type ChartPoint } from "@/components/analytics/ProgressChart";
-import { getExerciseHistory, getWeightUnit } from "@/lib/data/queries";
+import { getExerciseHistory, getTimeZoneMode, getWeightUnit } from "@/lib/data/queries";
 import { progressPoints } from "@/lib/domain/analytics";
 import { formatWeight, fromKg } from "@/lib/domain/units";
 
 export default async function ExerciseHistoryPage({ params }: PageProps<"/exercises/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [history, unit] = await Promise.all([getExerciseHistory(id), getWeightUnit()]);
+  const [history, unit, tz] = await Promise.all([getExerciseHistory(id), getWeightUnit(), getTimeZoneMode()]);
   if (!history) notFound();
 
   const points: ChartPoint[] = progressPoints(
@@ -61,7 +61,7 @@ export default async function ExerciseHistoryPage({ params }: PageProps<"/exerci
 
       <h2 className="mb-2 text-lg font-semibold">Progress</h2>
       <div className="mb-8">
-        <ProgressChart points={points} unit={unit} />
+        <ProgressChart points={points} unit={unit} tz={tz} />
       </div>
 
       <h2 className="mb-2 text-lg font-semibold">History</h2>
@@ -75,7 +75,7 @@ export default async function ExerciseHistoryPage({ params }: PageProps<"/exerci
               <li key={entry.workoutId}>
                 <Link href={`/history/${entry.workoutId}`} className="block rounded-xl bg-zinc-900 p-3 active:bg-zinc-800">
                   <div className="mb-1 text-sm text-zinc-400">
-                    <LocalTime iso={entry.startedAt} />
+                    <LocalTime iso={entry.startedAt} tz={tz} />
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
                     {entry.sets.map((s, i) => (

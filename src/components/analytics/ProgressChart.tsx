@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatDate } from "@/lib/format";
+import { formatDate, type TimeZoneMode } from "@/lib/format";
 import type { WeightUnit } from "@/lib/domain/units";
 
 export type ChartPoint = {
@@ -27,17 +27,19 @@ function CustomTooltip({
   payload,
   unit,
   metric,
+  tz,
 }: {
   active?: boolean;
   payload?: { payload: ChartPoint }[];
   unit: WeightUnit;
   metric: Metric;
+  tz: TimeZoneMode;
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   return (
     <div className="rounded-lg bg-zinc-800 px-3 py-2 text-sm shadow-lg">
-      <div className="text-zinc-400">{formatDate(p.startedAt)}</div>
+      <div className="text-zinc-400">{formatDate(p.startedAt, tz)}</div>
       {metric === "estimated1RM" && p.estimated1RM != null && (
         <div className="font-semibold text-emerald-400">
           {Math.round(p.estimated1RM * 10) / 10} {unit}
@@ -58,7 +60,7 @@ function CustomTooltip({
 }
 
 /** Progress over time for one exercise: estimated 1RM, top-set weight, or session volume. */
-export function ProgressChart({ points, unit }: { points: ChartPoint[]; unit: WeightUnit }) {
+export function ProgressChart({ points, unit, tz }: { points: ChartPoint[]; unit: WeightUnit; tz: TimeZoneMode }) {
   const [metric, setMetric] = useState<Metric>("estimated1RM");
 
   if (points.length < 2) {
@@ -88,13 +90,13 @@ export function ProgressChart({ points, unit }: { points: ChartPoint[]; unit: We
             <CartesianGrid stroke="var(--color-zinc-800)" vertical={false} />
             <XAxis
               dataKey="startedAt"
-              tickFormatter={(v: string) => formatDate(v).replace(/,.*/, "")}
+              tickFormatter={(v: string) => formatDate(v, tz).replace(/,.*/, "")}
               stroke="var(--color-zinc-500)"
               fontSize={11}
               minTickGap={24}
             />
             <YAxis stroke="var(--color-zinc-500)" fontSize={11} width={40} domain={["auto", "auto"]} />
-            <Tooltip content={<CustomTooltip unit={unit} metric={metric} />} />
+            <Tooltip content={<CustomTooltip unit={unit} metric={metric} tz={tz} />} />
             <Line
               type="monotone"
               dataKey={metric}

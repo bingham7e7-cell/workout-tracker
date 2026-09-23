@@ -2,23 +2,72 @@ import Link from "next/link";
 import { ActiveWorkoutBanner } from "@/components/ActiveWorkoutBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { StartWorkoutButton } from "@/components/StartWorkoutButton";
-import { getWeightUnit, listTemplates, listWorkouts } from "@/lib/data/queries";
+import { SkipPlanButton } from "@/components/SkipPlanButton";
+import { MuscleDiagram } from "@/components/MuscleDiagram";
+import { WeekStrip } from "@/components/WeekStrip";
 import { LocalTime } from "@/components/LocalTime";
+import {
+  getActivePlanNext,
+  getRecentSetsForWorkload,
+  getTimeZoneMode,
+  getWeightUnit,
+  listMuscleGroups,
+  listRecentWorkoutDates,
+  listTemplates,
+  listWorkouts,
+} from "@/lib/data/queries";
+import { muscleWorkload } from "@/lib/domain/workload";
 
 export default async function HomePage() {
-  const [unit, templates, recent] = await Promise.all([getWeightUnit(), listTemplates(), listWorkouts(3)]);
+  const [unit, tz, templates, recent, sets, muscleGroups, activePlanNext, recentDates] = await Promise.all([
+    getWeightUnit(),
+    getTimeZoneMode(),
+    listTemplates(),
+    listWorkouts(3),
+    getRecentSetsForWorkload(),
+    listMuscleGroups(),
+    getActivePlanNext(),
+    listRecentWorkoutDates(),
+  ]);
+  const workload = muscleWorkload(sets);
+  const muscleNames = Object.fromEntries(muscleGroups.map((m) => [m.id, m.name]));
 
   return (
     <>
       <PageHeader title="Workouts" />
       <ActiveWorkoutBanner />
 
-      <StartWorkoutButton
-        unit={unit}
-        className="mb-6 h-14 w-full rounded-2xl bg-zinc-800 text-lg font-semibold active:bg-zinc-700"
-      >
-        + Start empty workout
-      </StartWorkoutButton>
+      <MuscleDiagram workload={workload} muscleNames={muscleNames} figureWidth={120} />
+      <WeekStrip finishedIsoDates={recentDates} tz={tz} />
+
+      {activePlanNext ? (
+        <section className="mb-8 rounded-2xl bg-zinc-900 p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm text-zinc-400">
+              Next up in {activePlanNext.planName} ({activePlanNext.position + 1}/{activePlanNext.totalWorkouts})
+            </span>
+            <SkipPlanButton />
+          </div>
+          <div className="mb-4 text-xl font-bold">{activePlanNext.workout.name}</div>
+          <StartWorkoutButton
+            unit={unit}
+            template={activePlanNext.workout}
+            className="h-14 w-full rounded-xl bg-emerald-500 text-lg font-semibold text-zinc-950 active:bg-emerald-400"
+          >
+            Start
+          </StartWorkoutButton>
+          <StartWorkoutButton unit={unit} className="mt-2 flex h-11 w-full items-center justify-center text-sm text-zinc-400">
+            or start an empty workout
+          </StartWorkoutButton>
+        </section>
+      ) : (
+        <StartWorkoutButton
+          unit={unit}
+          className="mb-8 h-14 w-full rounded-2xl bg-emerald-500 text-lg font-semibold text-zinc-950 active:bg-emerald-400"
+        >
+          Start workout
+        </StartWorkoutButton>
+      )}
 
       <section className="mb-8">
         <div className="mb-2 flex items-center justify-between">
@@ -71,7 +120,9 @@ export default async function HomePage() {
               <li key={w.id}>
                 <Link href={`/history/${w.id}`} className="block rounded-xl bg-zinc-900 p-3 active:bg-zinc-800">
                   <div className="font-semibold">{w.name}</div>
-                  <div className="text-sm text-zinc-400"><LocalTime iso={w.startedAt} /></div>
+                  <div className="text-sm text-zinc-400">
+                    <LocalTime iso={w.startedAt} tz={tz} />
+                  </div>
                 </Link>
               </li>
             ))}

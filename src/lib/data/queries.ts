@@ -7,6 +7,7 @@ import "server-only";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
+import { isTimeZoneMode, type TimeZoneMode } from "@/lib/format";
 import type { MuscleRole, WorkloadSet } from "@/lib/domain/workload";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
@@ -14,6 +15,13 @@ export async function getWeightUnit(): Promise<WeightUnit> {
   const { data, error } = await supabase.from("profiles").select("weight_unit").maybeSingle();
   if (error) throw error;
   return isWeightUnit(data?.weight_unit) ? data.weight_unit : "lb";
+}
+
+export async function getTimeZoneMode(): Promise<TimeZoneMode> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("profiles").select("time_zone_mode").maybeSingle();
+  if (error) throw error;
+  return isTimeZoneMode(data?.time_zone_mode) ? data.time_zone_mode : "auto";
 }
 
 export type TemplateSummary = {
@@ -350,6 +358,20 @@ export async function getActivePlanNext(): Promise<ActivePlanNext | null> {
     totalWorkouts: ordered.length,
     workout: toTemplateSummary(pw.templates),
   };
+}
+
+/**
+ * `finished_at` timestamps for workouts finished recently, for the home
+ * screen's 7-day strip. Fetches a few extra days of buffer so the client can
+ * bucket them into calendar days in whichever time zone the user has chosen
+ * without missing one at the edge.
+ */
+export async function listRecentWorkoutDates(days = 10): Promise<string[]> {
+  const supabase = await getSupabaseServer();
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await supabase.from("workouts").select("finished_at").gte("finished_at", cutoff);
+  if (error) throw error;
+  return (data as { finished_at: string }[]).map((w) => w.finished_at);
 }
 
 export type MuscleGroup = { id: string; name: string };

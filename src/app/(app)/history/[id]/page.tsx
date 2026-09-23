@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteWorkoutButton } from "@/components/DeleteWorkoutButton";
 import { PageHeader } from "@/components/PageHeader";
-import { getWeightUnit, getWorkout } from "@/lib/data/queries";
+import { getTimeZoneMode, getWeightUnit, getWorkout } from "@/lib/data/queries";
 import { formatWeight } from "@/lib/domain/units";
 import { LocalTime } from "@/components/LocalTime";
 import { formatDuration } from "@/lib/format";
@@ -10,14 +10,14 @@ import { formatDuration } from "@/lib/format";
 export default async function WorkoutDetailPage({ params }: PageProps<"/history/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [workout, unit] = await Promise.all([getWorkout(id), getWeightUnit()]);
+  const [workout, unit, tz] = await Promise.all([getWorkout(id), getWeightUnit(), getTimeZoneMode()]);
   if (!workout) notFound();
 
   return (
     <>
       <PageHeader title={workout.name} />
       <p className="-mt-3 mb-5 text-zinc-400">
-        <LocalTime iso={workout.startedAt} show="dateTime" /> ·{" "}
+        <LocalTime iso={workout.startedAt} show="dateTime" tz={tz} /> ·{" "}
         {formatDuration(workout.startedAt, workout.finishedAt)}
       </p>
 

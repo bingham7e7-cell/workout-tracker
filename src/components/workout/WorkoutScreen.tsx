@@ -28,9 +28,9 @@ import { clearDraft, loadDraft, saveDraft, useActiveDraft } from "@/lib/client/d
 import { getCachedPreviousSets, setCachedPreviousSets } from "@/lib/client/previousSetsCache";
 import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { formatTime } from "@/lib/format";
+import { formatTime, type TimeZoneMode } from "@/lib/format";
 
-export function WorkoutScreen() {
+export function WorkoutScreen({ tz }: { tz: TimeZoneMode }) {
   const router = useRouter();
   const { draft, ready } = useActiveDraft();
   const [picking, setPicking] = useState(false);
@@ -328,7 +328,7 @@ export function WorkoutScreen() {
             className="w-full truncate bg-transparent text-xl font-bold outline-none"
           />
           <div className="text-sm text-zinc-400">
-            Started {formatTime(draft.startedAt)} · {logged} set{logged === 1 ? "" : "s"} logged
+            Started {formatTime(draft.startedAt, tz)} · {logged} set{logged === 1 ? "" : "s"} logged
           </div>
         </div>
         <button

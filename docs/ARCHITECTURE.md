@@ -134,6 +134,8 @@ MuscleMap's own group name lowercased (e.g. `shoulders_front` ↔ `SHOULDERS_FRO
 by any signed-in user.
 
 **`profiles`** — one row per user: `id` (= auth user id), `weight_unit` (`'kg'|'lb'`),
+`time_zone_mode` (`'auto'|'utc'` — how dates/times are *displayed*; every timestamp is
+still stored in UTC), `active_plan_id`/`active_plan_position` (see `plans` below),
 `created_at`. Created automatically on first sign-in by a database trigger.
 
 **`exercises`** — the library: `id`, `user_id`, `name`, `equipment` (optional),
