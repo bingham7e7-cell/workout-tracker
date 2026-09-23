@@ -8,11 +8,22 @@ import { clearPreviousSetsCache } from "@/lib/client/previousSetsCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
 import { ExportDataButtons } from "@/components/ExportDataButtons";
 import type { WeightUnit } from "@/lib/domain/units";
+import type { TimeZoneMode } from "@/lib/format";
 
-export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; email: string }) {
+export function SettingsForm({
+  unit: initialUnit,
+  timeZoneMode: initialTimeZoneMode,
+  email,
+}: {
+  unit: WeightUnit;
+  timeZoneMode: TimeZoneMode;
+  email: string;
+}) {
   const router = useRouter();
   const [unit, setUnit] = useState(initialUnit);
+  const [timeZoneMode, setTimeZoneMode] = useState(initialTimeZoneMode);
   const [error, setError] = useState<string | null>(null);
+  const [tzError, setTzError] = useState<string | null>(null);
 
   async function changeUnit(next: WeightUnit) {
     if (next === unit) return;
@@ -28,6 +39,25 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
     if (error) {
       setUnit(previous);
       setError(describeError(error));
+      return;
+    }
+    router.refresh();
+  }
+
+  async function changeTimeZoneMode(next: TimeZoneMode) {
+    if (next === timeZoneMode) return;
+    const previous = timeZoneMode;
+    setTimeZoneMode(next);
+    setTzError(null);
+    const { data: claims } = await getSupabaseBrowser().auth.getClaims();
+    const { error } = await getSupabaseBrowser()
+      .from("profiles")
+      .update({ time_zone_mode: next })
+      .eq("id", claims?.claims?.sub ?? "")
+      .abortSignal(timeoutSignal());
+    if (error) {
+      setTimeZoneMode(previous);
+      setTzError(describeError(error));
       return;
     }
     router.refresh();
@@ -70,7 +100,38 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
         {error && <p className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">{error}</p>}
       </section>
 
+      <section>
+        <h2 className="mb-1 font-semibold">Time zone</h2>
+        <p className="mb-3 text-sm text-zinc-400">
+          Controls how dates and times are shown throughout the app. Timestamps are always stored precisely, so
+          switching never changes your data.
+        </p>
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-900 p-1">
+          {(["auto", "utc"] as const).map((tz) => (
+            <button
+              key={tz}
+              onClick={() => changeTimeZoneMode(tz)}
+              className={`h-12 rounded-lg text-lg font-semibold ${timeZoneMode === tz ? "bg-emerald-500 text-zinc-950" : "text-zinc-300"}`}
+            >
+              {tz === "auto" ? "Automatic" : "UTC"}
+            </button>
+          ))}
+        </div>
+        {tzError && <p className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">{tzError}</p>}
+      </section>
+
       <ExportDataButtons />
+
+      <section>
+        <h2 className="mb-1 font-semibold">Credits</h2>
+        <p className="text-sm text-zinc-400">
+          Body diagrams by{" "}
+          <a href="https://github.com/Jsplice/MuscleMap" className="text-emerald-400 underline">
+            MuscleMap
+          </a>
+          , used under the MIT license.
+        </p>
+      </section>
 
       <section>
         <h2 className="mb-1 font-semibold">Account</h2>

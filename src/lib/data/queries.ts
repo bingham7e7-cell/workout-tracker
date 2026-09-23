@@ -7,13 +7,21 @@ import "server-only";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
-import type { MuscleRole, WorkloadSet } from "@/lib/domain/workload";
+import { isTimeZoneMode, type TimeZoneMode } from "@/lib/format";
+import { WORKLOAD_WINDOW_DAYS, type MuscleRole, type WorkloadSet } from "@/lib/domain/workload";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
   const supabase = await getSupabaseServer();
   const { data, error } = await supabase.from("profiles").select("weight_unit").maybeSingle();
   if (error) throw error;
   return isWeightUnit(data?.weight_unit) ? data.weight_unit : "lb";
+}
+
+export async function getTimeZoneMode(): Promise<TimeZoneMode> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("profiles").select("time_zone_mode").maybeSingle();
+  if (error) throw error;
+  return isTimeZoneMode(data?.time_zone_mode) ? data.time_zone_mode : "auto";
 }
 
 export type TemplateSummary = {
@@ -164,17 +172,26 @@ export async function getWorkout(id: string): Promise<WorkoutDetail | null> {
   };
 }
 
-export type ExerciseListItem = { id: string; name: string; equipment: string | null; archived: boolean };
+export type ExerciseListItem = {
+  id: string;
+  name: string;
+  equipment: string | null;
+  archived: boolean;
+  addedByImport: boolean;
+};
 
 export async function listExercises(): Promise<ExerciseListItem[]> {
   const supabase = await getSupabaseServer();
-  const { data, error } = await supabase.from("exercises").select("id, name, equipment, archived_at").order("name");
+  const { data, error } = await supabase.from("exercises").select("id, name, equipment, archived_at, added_via").order("name");
   if (error) throw error;
-  return (data as { id: string; name: string; equipment: string | null; archived_at: string | null }[]).map((e) => ({
+  return (
+    data as { id: string; name: string; equipment: string | null; archived_at: string | null; added_via: string | null }[]
+  ).map((e) => ({
     id: e.id,
     name: e.name,
     equipment: e.equipment,
     archived: e.archived_at !== null,
+    addedByImport: e.added_via === "import",
   }));
 }
 
@@ -272,6 +289,135 @@ export async function listExercisePRs(): Promise<ExercisePRSummary[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export type PlanSummary = { id: string; name: string; workouts: { templateId: string; name: string }[] };
+
+type PlanRow = {
+  id: string;
+  name: string;
+  plan_workouts: { position: number; template_id: string; templates: { name: string } | null }[];
+};
+
+function toPlanSummary(p: PlanRow): PlanSummary {
+  return {
+    id: p.id,
+    name: p.name,
+    workouts: [...p.plan_workouts]
+      .sort((a, b) => a.position - b.position)
+      .map((pw) => ({ templateId: pw.template_id, name: pw.templates?.name ?? "Deleted template" })),
+  };
+}
+
+const PLAN_SELECT = "id, name, plan_workouts(position, template_id, templates(name))";
+
+export async function listPlans(): Promise<PlanSummary[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("plans").select(PLAN_SELECT).order("name");
+  if (error) throw error;
+  return (data as unknown as PlanRow[]).map(toPlanSummary);
+}
+
+export async function getPlan(id: string): Promise<PlanSummary | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("plans").select(PLAN_SELECT).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data ? toPlanSummary(data as unknown as PlanRow) : null;
+}
+
+export async function getActivePlanId(): Promise<string | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("profiles").select("active_plan_id").maybeSingle();
+  if (error) throw error;
+  return data?.active_plan_id ?? null;
+}
+
+export type ActivePlanNext = {
+  planId: string;
+  planName: string;
+  position: number;
+  totalWorkouts: number;
+  workout: TemplateSummary;
+};
+
+type ActivePlanProfileRow = {
+  active_plan_position: number;
+  plans: { id: string; name: string; plan_workouts: { position: number; template_id: string; templates: TemplateRow | null }[] } | null;
+};
+
+/** The workout the user's active plan currently suggests, or null if there's no active plan (or it's empty). */
+export async function getActivePlanNext(): Promise<ActivePlanNext | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(`active_plan_position, plans(id, name, plan_workouts(position, template_id, templates(${TEMPLATE_SELECT})))`)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as unknown as ActivePlanProfileRow | null;
+  const plan = row?.plans;
+  if (!plan || plan.plan_workouts.length === 0) return null;
+
+  const ordered = [...plan.plan_workouts].sort((a, b) => a.position - b.position);
+  const index = row!.active_plan_position % ordered.length;
+  const pw = ordered[index];
+  if (!pw.templates) return null; // Defensive only: deleting a template cascades its plan_workouts row away immediately, so this shouldn't normally be reachable.
+
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    position: index,
+    totalWorkouts: ordered.length,
+    workout: toTemplateSummary(pw.templates),
+  };
+}
+
+/**
+ * `finished_at` timestamps for workouts finished recently, for the home
+ * screen's 7-day strip. Fetches a few extra days of buffer so the client can
+ * bucket them into calendar days in whichever time zone the user has chosen
+ * without missing one at the edge.
+ */
+export async function listRecentWorkoutDates(days = 10): Promise<string[]> {
+  const supabase = await getSupabaseServer();
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await supabase.from("workouts").select("finished_at").gte("finished_at", cutoff);
+  if (error) throw error;
+  return (data as { finished_at: string }[]).map((w) => w.finished_at);
+}
+
+export type ExerciseMuscle = { muscleGroupId: string; name: string; role: MuscleRole };
+
+/** The muscles an exercise trains, with names, for the exercise detail screen's diagram + breakdown. */
+export async function getExerciseMuscles(exerciseId: string): Promise<ExerciseMuscle[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase
+    .from("exercise_muscles")
+    .select("muscle_group_id, role, muscle_groups(name)")
+    .eq("exercise_id", exerciseId);
+  if (error) throw error;
+  return (data as unknown as { muscle_group_id: string; role: string; muscle_groups: { name: string } | null }[]).map((r) => ({
+    muscleGroupId: r.muscle_group_id,
+    name: r.muscle_groups?.name ?? r.muscle_group_id,
+    role: r.role as MuscleRole,
+  }));
+}
+
+export type StarterPlanSummary = { id: string; name: string; workoutNames: string[] };
+
+type StarterPlanRow = { id: string; name: string; starter_plan_workouts: { position: number; name: string }[] };
+
+const STARTER_PLAN_SELECT = "id, name, starter_plan_workouts(position, name)";
+
+/** Built-in, read-only plans shared by every user — shown as "Start from a template" when building a plan. */
+export async function listStarterPlans(): Promise<StarterPlanSummary[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("starter_plans").select(STARTER_PLAN_SELECT).order("sort_order");
+  if (error) throw error;
+  return (data as unknown as StarterPlanRow[]).map((p) => ({
+    id: p.id,
+    name: p.name,
+    workoutNames: [...p.starter_plan_workouts].sort((a, b) => a.position - b.position).map((w) => w.name),
+  }));
+}
+
 export type MuscleGroup = { id: string; name: string };
 
 export async function listMuscleGroups(): Promise<MuscleGroup[]> {
@@ -280,11 +426,6 @@ export async function listMuscleGroups(): Promise<MuscleGroup[]> {
   if (error) throw error;
   return data;
 }
-
-// Contributions decay by half every 48h (see lib/domain/workload.ts); by 21 days
-// out a set's contribution is under 0.1% of its starting value, so this window
-// captures everything that could meaningfully affect the current workload.
-const WORKLOAD_WINDOW_DAYS = 21;
 
 type WorkloadWorkoutRow = {
   finished_at: string;

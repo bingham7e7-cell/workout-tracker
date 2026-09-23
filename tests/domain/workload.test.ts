@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { muscleWorkload, recencyFactor, workloadBucket, type WorkloadSet } from "@/lib/domain/workload";
+import { muscleWorkload, recencyFactor, roleWorkload, workloadBucket, type WorkloadSet } from "@/lib/domain/workload";
 
 const NOW = new Date("2026-09-08T00:00:00Z");
 
@@ -117,5 +117,19 @@ describe("muscle workload", () => {
 
   test("no sets logged yet: empty workload, not a crash", () => {
     expect(muscleWorkload([], NOW)).toEqual({});
+  });
+});
+
+describe("role workload (exercise detail diagram illustration)", () => {
+  test("primary muscles score into the very-high bucket, secondary into high", () => {
+    const workload = roleWorkload(["chest", "front_delts"], ["triceps"]);
+    expect(workloadBucket(workload.chest)).toBe("very_high");
+    expect(workloadBucket(workload.front_delts)).toBe("very_high");
+    expect(workloadBucket(workload.triceps)).toBe("high");
+  });
+
+  test("a muscle listed as both primary and secondary keeps the primary (stronger) score", () => {
+    const workload = roleWorkload(["chest"], ["chest"]);
+    expect(workloadBucket(workload.chest)).toBe("very_high");
   });
 });

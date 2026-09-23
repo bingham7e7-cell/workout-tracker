@@ -30,6 +30,10 @@ import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/err
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { formatTime } from "@/lib/format";
 
+// No time-zone prop here on purpose: this screen must keep working fully
+// offline (see workout/page.tsx), so it never depends on a server fetch of
+// the Settings > Time zone choice. formatTime defaults to the device's own
+// time zone either way.
 export function WorkoutScreen() {
   const router = useRouter();
   const { draft, ready } = useActiveDraft();

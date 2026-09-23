@@ -26,6 +26,63 @@ could be supported later without requiring a major redesign").
    `docs/ARCHITECTURE.md` §7. The original spec's "email magic link" line below is superseded
    by this; the magic link still works as a fallback in Safari.
 
+## Feature additions after Stage 6 (2026-09-24)
+
+With the original six stages complete and shipped, the owner requested six further features,
+built in this order (see `docs/ARCHITECTURE.md` for the schema/architecture detail behind each):
+
+1. **Body diagram replaced with MuscleMap.** The original hand-drawn geometric SVG diagram is
+   replaced by the open-source `@musclemap/react` library (MIT, pinned to an exact version),
+   isolated behind a single `src/components/MuscleDiagram.tsx` so the rest of the app never
+   imports the library directly. Muscle groups were remapped to MuscleMap's most detailed
+   21-group set (adding rhomboids, hip flexors, and abductors, which the app didn't track
+   before). Attribution is in Settings > Credits.
+2. **Rolling plans.** A plan is an ordered, repeating list of workout templates (e.g. Push,
+   Pull, Legs) with no calendar days or rest days. Users create/edit/reorder/delete plans and
+   choose one active plan. Finishing the workout a plan currently suggests advances it
+   (matched by template, looping back to the start after the last one); finishing a different
+   workout leaves the plan where it is. Skipping (with confirmation) moves the plan forward
+   without deleting anything from it. Starting any workout at any time still works exactly as
+   before. Plans are private per user via RLS, like every other table.
+3. **New home screen layout,** top to bottom: the muscle diagram, a 7-day strip (today
+   rightmost, an empty circle or a red filled circle with a checkmark for a day a workout was
+   completed), then either a "Next up" card for the active plan (Start + Skip) or a plain
+   "Start workout" button if there's no active plan. Quick-start (templates, a blank workout)
+   and Recent stay below, unchanged.
+   - **Time zones.** Every timestamp is still stored in UTC. A new per-user setting
+     (Settings > Time zone: Automatic — the original device-local behavior — or UTC) controls
+     how dates/times are *displayed* everywhere in the app: the day strip, history, workout
+     details, and progress charts.
+4. **Transparent muscle math.** Each exercise's detail screen shows a small diagram (primary
+   muscles in the strong color, secondary in a lighter one) and a plain-language credit
+   breakdown ("Primary (100% credit per set): Chest, Front delts. Secondary (50% credit per
+   set): Triceps."), plus a new "How the muscle map works" screen (linked from every diagram's
+   legend) explaining the full formula — sets, RPE effort, primary/secondary credit, and how
+   workload fades over time. The explanation text and the real calculation are built from the
+   same shared constants in `src/lib/domain/workload.ts`, so they can't disagree.
+5. **Starter plans.** Three original, generic routines — Full Body (3 rotating workouts),
+   Upper/Lower (Upper A, Lower A, Upper B, Lower B), and Push/Pull/Legs (3 workouts) — built
+   from this app's own exercise library, not copied from any named/branded program. They're
+   read-only and shared by every user; copying one (from the plan creation screen's "Start
+   from a template") creates the user's own private plan and workout templates, editable
+   exactly like anything built by hand.
+6. **AI plan import (no AI runs inside the app).** "Build a plan with AI" on the plan creation
+   screen copies a ready-made prompt to the clipboard — the user's own exercise list (including
+   custom exercises), the valid muscle groups, and the exact JSON reply format — for the user
+   to paste into an AI assistant of their choice. The pasted reply is extracted from any
+   surrounding prose, validated, and each exercise matched to the user's library by exact,
+   case-insensitive name. An unreadable or invalid reply shows plain-language problems and a
+   "Copy fix request" button (a message to paste back to the AI). A valid reply shows a full
+   preview labelling each exercise Matched or New; a New exercise can be renamed, have its
+   muscles edited, or be swapped for an existing exercise, and saving is blocked until every
+   New exercise has at least one primary muscle, only valid muscle names, and no name that
+   duplicates an existing exercise. Saving creates the new exercises (tagged "Added by
+   import"), the workout templates, and the plan together in one transaction.
+   - *Simplification:* the AI's suggested rep range and RPE are shown in the preview for
+     context, but `template_exercises` (like every hand-built template) only stores a single
+     target rep count, so the range collapses to its rounded midpoint at save time; RPE isn't
+     persisted on the template at all, since no template in the app carries one.
+
 Nothing else about scope, staging, or priorities changes.
 
 Build a mobile-first personal strength-training progressive web app using Next.js, TypeScript, Tailwind CSS, Supabase, and PostgreSQL.

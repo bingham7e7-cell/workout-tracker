@@ -65,6 +65,14 @@ export const templatePayloadSchema = z.object({
 
 export type TemplatePayload = z.infer<typeof templatePayloadSchema>;
 
+export const planPayloadSchema = z.object({
+  id: z.uuid().nullable(),
+  name,
+  template_ids: z.array(z.uuid()).min(1, "A plan needs at least one workout").max(50),
+});
+
+export type PlanPayload = z.infer<typeof planPayloadSchema>;
+
 export const exerciseInputSchema = z.object({
   name,
   equipment: z.string().trim().max(50).nullable(),

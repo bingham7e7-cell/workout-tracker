@@ -49,6 +49,7 @@ Supabase
 | Input validation | `zod` | One set of rules shared by the browser and the server. The database also enforces its own constraints as a last line of defence. |
 | Reads / writes | Pages read on the server (as the signed-in user). Writes go from the browser straight to Supabase: Postgres functions (RPC) for multi-row saves, plain deletes otherwise. | One simple pattern. RLS protects every call. Saving a workout touches 3 tables, so a Postgres function does it in one transaction. Browser-side saves also work with the offline retry in Stage 3. |
 | Charts (Stage 4) | Recharts | Common, simple, React-friendly. |
+| Body diagram | `@musclemap/react` (pinned, MIT) | Flat-vector front/back muscle diagram with a legend and tap-to-select, isolated behind `src/components/MuscleDiagram.tsx` so the rest of the app never imports it directly. Attribution in Settings > Credits. |
 | PWA (Stage 3) | Hand-written `manifest.webmanifest` + small service worker | PWA plugins for Next.js break often across versions; a ~50-line worker is easier to maintain. |
 | Unit tests | Vitest | Fast, TypeScript-native. |
 | DB tests | Vitest + **PGlite** (real Postgres compiled to WebAssembly, runs in-process) | Lets us run the real migrations and test the save/edit/duplicate logic and RLS without Docker or a live Supabase project. |
@@ -65,14 +66,15 @@ src/
     login/                   email sign-in
     auth/confirm/            magic-link landing route
     (app)/                   everything behind login
-      page.tsx               home: start workout, recent workouts
+      page.tsx               home: body diagram, 7-day strip, next-up/start, recent
       templates/             list / create / edit / duplicate / delete
+      plans/                 list / create (starter, AI, or build-your-own) / edit
       workout/               ACTIVE workout (client-side)
       history/               completed workouts; [id] view + edit
       exercises/             library + per-exercise history (Stage 4)
-      analytics/             PRs, charts (Stage 4), muscle map (Stage 5)
-      settings/              units, export (Stage 6)
-  components/                UI pieces (SetRow, NumberInput, BodyDiagram, ...)
+      analytics/             PRs, charts (Stage 4), muscle map + how-it-works (Stage 5)
+      settings/              units, time zone, export, credits (Stage 6)
+  components/                UI pieces (SetRow, NumberInput, MuscleDiagram, ...)
   lib/
     supabase/                browser + server client helpers, auth middleware
     domain/                  PURE functions, no database: units, 1RM, volume,
@@ -123,15 +125,22 @@ auth.users (managed by Supabase)
 
 ### Tables
 
-**`muscle_groups`** — shared, read-only reference list (~16 rows: chest, front delts,
-side delts, rear delts, biceps, triceps, forearms, upper back/traps, lats, lower back,
-abs, obliques, glutes, quads, hamstrings, calves, adductors). `id` is a text slug
-like `'chest'` which the SVG diagram also uses. Readable by any signed-in user.
+**`muscle_groups`** — shared, read-only reference list. 21 rows, matching the
+`@musclemap/react` body-diagram library's most detailed muscle set: `chest`,
+`shoulders_front/side/rear`, `trapezius`, `rhomboids`, `back_upper`, `lats`, `back_lower`,
+`biceps`, `triceps`, `forearms`, `core`, `obliques`, `hip_flexors`, `glutes`, `quads`,
+`hamstrings`, `adductors`, `abductors`, `calves`. `id` is a text slug that is also
+MuscleMap's own group name lowercased (e.g. `shoulders_front` ↔ `SHOULDERS_FRONT`), so
+`src/components/MuscleDiagram.tsx` converts between them with no lookup table. Readable
+by any signed-in user.
 
 **`profiles`** — one row per user: `id` (= auth user id), `weight_unit` (`'kg'|'lb'`),
+`time_zone_mode` (`'auto'|'utc'` — how dates/times are *displayed*; every timestamp is
+still stored in UTC), `active_plan_id`/`active_plan_position` (see `plans` below),
 `created_at`. Created automatically on first sign-in by a database trigger.
 
 **`exercises`** — the library: `id`, `user_id`, `name`, `equipment` (optional),
+`added_via` (`null` normally, `'import'` for an exercise the AI plan importer created),
 `archived_at` (null = active), timestamps. Unique on `(user_id, lower(name))`.
 The ~50 default exercises are **copied into your library** on first sign-in, so you can
 rename them, fix their muscles, or add your own — everything is uniformly "yours".
@@ -146,6 +155,37 @@ in the app.
 
 **`template_exercises`** — `id`, `template_id` (cascade delete), `exercise_id`, `position`,
 `target_sets` (optional), `target_reps` (optional). Duplicating a template = copying these rows.
+
+**`plans`** — `id`, `user_id`, `name`, timestamps. An ordered, repeating list of workout
+templates (e.g. Push, Pull, Legs) — no calendar days, no rest days.
+
+**`plan_workouts`** — `id`, `plan_id` (cascade delete), `template_id` (cascade delete — a plan
+points at *live* templates, not a snapshot), `position`. `profiles.active_plan_id` (nullable)
++ `active_plan_position` track which plan is active and where in its rotation the user is.
+Finishing the workout at that position (matched by `template_id`, inside `save_workout`)
+advances the position, looping back to 0 after the last one; finishing any other workout, or
+`skip_active_plan()`, moves the position without changing the plan's contents. A trigger on
+`profiles` rejects pointing `active_plan_id` at another user's plan and resets the position to
+0 whenever the active plan changes.
+
+**`starter_plans` / `starter_plan_workouts` / `starter_plan_exercises`** — built-in, read-only,
+shared by every user (RLS: select-only, no `user_id`). Three original, generic routines (Full
+Body, Upper/Lower, Push/Pull/Legs) built from this app's own exercise library. `copy_starter_plan(id)`
+copies one into the caller's own `plans`/`templates`/`template_exercises` in one transaction,
+matching `starter_plan_exercises.exercise_name` to the caller's own exercise by name (an
+exercise the user doesn't have, e.g. deleted, is silently skipped rather than failing the copy).
+
+### AI plan import
+No AI runs inside the app. `src/lib/domain/importPlan.ts` builds a clipboard prompt from the
+user's own exercise list + the valid muscle groups, extracts/validates the JSON the user pastes
+back (tolerating extra prose around it), matches each exercise to the user's library by exact
+case-insensitive name, and lets the user fix any problem (a "New" exercise needs a name, at
+least one primary muscle, and valid muscle names) before saving. `import_plan(payload)` creates
+the new exercises (tagged `added_via = 'import'`), templates, and the plan together in one
+transaction. The AI's suggested rep *range* and RPE are shown in the preview for context, but
+`template_exercises` only stores a single `target_reps` (like every other template in the app),
+so the range collapses to its rounded midpoint at save time — a deliberate simplification rather
+than adding a rep-range/RPE column used nowhere else.
 
 **`workouts`** — completed workouts only. `id` (client-generated UUID), `user_id`,
 `template_id` (nullable, `ON DELETE SET NULL`), `name` (snapshot, e.g. "Push Day"),
@@ -211,9 +251,14 @@ contribution = effort × role × recency
 muscle workload = sum of contributions  ("effective recent sets")
 ```
 
-Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high.
-The screen states this is an estimate of recent training exposure, **not** medical
-recovery or readiness.
+The body diagram (`src/components/MuscleDiagram.tsx`, using `@musclemap/react`) colors
+each muscle on a **continuous** gradient, converting the workload score to MuscleMap's
+0–100 scale at a workload of 10 = 100 (already deep into "very high"). The discrete
+buckets — 0 untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high — are still used
+for the plain-language label under the diagram when you tap a muscle (e.g. "High —
+recent workload 6.2"), just not to drive the diagram's own color scale. Every screen
+states this is an estimate of recent training exposure, **not** medical recovery or
+readiness.
 
 The 21-day query window (not 7) is intentional: with a 48-hour half-life, a set is
 still worth ~9–13% of its starting contribution at day 6–7, so a hard 7-day cutoff
