@@ -5,6 +5,7 @@
  */
 import "server-only";
 import { getSupabaseServer } from "@/lib/supabase/server";
+import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
@@ -160,4 +161,111 @@ export async function getWorkout(id: string): Promise<WorkoutDetail | null> {
           })),
       })),
   };
+}
+
+export type ExerciseListItem = { id: string; name: string; equipment: string | null; archived: boolean };
+
+export async function listExercises(): Promise<ExerciseListItem[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("exercises").select("id, name, equipment, archived_at").order("name");
+  if (error) throw error;
+  return (data as { id: string; name: string; equipment: string | null; archived_at: string | null }[]).map((e) => ({
+    id: e.id,
+    name: e.name,
+    equipment: e.equipment,
+    archived: e.archived_at !== null,
+  }));
+}
+
+type SessionRow = {
+  workout_id: string;
+  workouts: { started_at: string } | null;
+  workout_sets: { weight_kg: number | string; reps: number; rpe: number | string | null; is_warmup: boolean; position: number }[];
+};
+
+function toSessions(rows: SessionRow[]): ExerciseSession[] {
+  return rows
+    .filter((r) => r.workouts !== null)
+    .map((r) => ({
+      workoutId: r.workout_id,
+      startedAt: r.workouts!.started_at,
+      sets: [...r.workout_sets]
+        .sort((a, b) => a.position - b.position)
+        .map((s) => ({ weightKg: Number(s.weight_kg), reps: s.reps, isWarmup: s.is_warmup })),
+    }));
+}
+
+export type ExerciseHistoryEntry = {
+  workoutId: string;
+  startedAt: string;
+  sets: { weightKg: number; reps: number; rpe: number | null; isWarmup: boolean }[];
+};
+
+export type ExerciseHistory = {
+  name: string;
+  archived: boolean;
+  /** Most recent session first — for the history log. */
+  entries: ExerciseHistoryEntry[];
+  records: PersonalRecords;
+};
+
+/** Every session an exercise was performed in, its personal records, and its history log. */
+export async function getExerciseHistory(exerciseId: string): Promise<ExerciseHistory | null> {
+  const supabase = await getSupabaseServer();
+  const [{ data: exercise, error: exerciseError }, { data, error }] = await Promise.all([
+    supabase.from("exercises").select("name, archived_at").eq("id", exerciseId).maybeSingle(),
+    supabase
+      .from("workout_exercises")
+      .select("workout_id, workouts(started_at), workout_sets(weight_kg, reps, rpe, is_warmup, position)")
+      .eq("exercise_id", exerciseId),
+  ]);
+  if (exerciseError) throw exerciseError;
+  if (error) throw error;
+  if (!exercise) return null;
+
+  const rows = data as unknown as SessionRow[];
+
+  return {
+    name: exercise.name,
+    archived: exercise.archived_at !== null,
+    records: personalRecords(toSessions(rows)),
+    entries: rows
+      .filter((r) => r.workouts !== null)
+      .map((r) => ({
+        workoutId: r.workout_id,
+        startedAt: r.workouts!.started_at,
+        sets: [...r.workout_sets]
+          .sort((a, b) => a.position - b.position)
+          .map((s) => ({
+            weightKg: Number(s.weight_kg),
+            reps: s.reps,
+            rpe: s.rpe == null ? null : Number(s.rpe),
+            isWarmup: s.is_warmup,
+          })),
+      }))
+      .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)),
+  };
+}
+
+export type ExercisePRSummary = { exerciseId: string; name: string; records: PersonalRecords };
+
+/** Personal records for every exercise the user has ever logged a working set for. */
+export async function listExercisePRs(): Promise<ExercisePRSummary[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase
+    .from("workout_exercises")
+    .select("exercise_id, exercises(name), workout_id, workouts(started_at), workout_sets(weight_kg, reps, is_warmup, position)");
+  if (error) throw error;
+
+  const byExercise = new Map<string, { name: string; rows: SessionRow[] }>();
+  for (const row of data as unknown as (SessionRow & { exercise_id: string; exercises: { name: string } | null })[]) {
+    const entry = byExercise.get(row.exercise_id) ?? { name: row.exercises?.name ?? "Unknown exercise", rows: [] };
+    entry.rows.push(row);
+    byExercise.set(row.exercise_id, entry);
+  }
+
+  return [...byExercise.entries()]
+    .map(([exerciseId, { name, rows }]) => ({ exerciseId, name, records: personalRecords(toSessions(rows)) }))
+    .filter((e) => e.records.heaviestWeight !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

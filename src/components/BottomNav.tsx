@@ -7,6 +7,7 @@ const ITEMS = [
   { href: "/", label: "Home", icon: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" },
   { href: "/templates", label: "Templates", icon: "M5 4h14v16H5zM9 8h6M9 12h6M9 16h3" },
   { href: "/history", label: "History", icon: "M12 7v5l3 3M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z" },
+  { href: "/analytics", label: "Analytics", icon: "M4 20V10M11 20V4M18 20v-7" },
   { href: "/settings", label: "Settings", icon: "M4 6h16M4 12h16M4 18h16" },
 ];
 
