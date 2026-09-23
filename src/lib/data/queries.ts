@@ -272,6 +272,86 @@ export async function listExercisePRs(): Promise<ExercisePRSummary[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export type PlanSummary = { id: string; name: string; workouts: { templateId: string; name: string }[] };
+
+type PlanRow = {
+  id: string;
+  name: string;
+  plan_workouts: { position: number; template_id: string; templates: { name: string } | null }[];
+};
+
+function toPlanSummary(p: PlanRow): PlanSummary {
+  return {
+    id: p.id,
+    name: p.name,
+    workouts: [...p.plan_workouts]
+      .sort((a, b) => a.position - b.position)
+      .map((pw) => ({ templateId: pw.template_id, name: pw.templates?.name ?? "Deleted template" })),
+  };
+}
+
+const PLAN_SELECT = "id, name, plan_workouts(position, template_id, templates(name))";
+
+export async function listPlans(): Promise<PlanSummary[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("plans").select(PLAN_SELECT).order("name");
+  if (error) throw error;
+  return (data as unknown as PlanRow[]).map(toPlanSummary);
+}
+
+export async function getPlan(id: string): Promise<PlanSummary | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("plans").select(PLAN_SELECT).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data ? toPlanSummary(data as unknown as PlanRow) : null;
+}
+
+export async function getActivePlanId(): Promise<string | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("profiles").select("active_plan_id").maybeSingle();
+  if (error) throw error;
+  return data?.active_plan_id ?? null;
+}
+
+export type ActivePlanNext = {
+  planId: string;
+  planName: string;
+  position: number;
+  totalWorkouts: number;
+  workout: TemplateSummary;
+};
+
+type ActivePlanProfileRow = {
+  active_plan_position: number;
+  plans: { id: string; name: string; plan_workouts: { position: number; template_id: string; templates: TemplateRow | null }[] } | null;
+};
+
+/** The workout the user's active plan currently suggests, or null if there's no active plan (or it's empty). */
+export async function getActivePlanNext(): Promise<ActivePlanNext | null> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(`active_plan_position, plans(id, name, plan_workouts(position, template_id, templates(${TEMPLATE_SELECT})))`)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as unknown as ActivePlanProfileRow | null;
+  const plan = row?.plans;
+  if (!plan || plan.plan_workouts.length === 0) return null;
+
+  const ordered = [...plan.plan_workouts].sort((a, b) => a.position - b.position);
+  const index = row!.active_plan_position % ordered.length;
+  const pw = ordered[index];
+  if (!pw.templates) return null; // The template behind this slot was deleted (rare: cascades away on its own next save).
+
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    position: index,
+    totalWorkouts: ordered.length,
+    workout: toTemplateSummary(pw.templates),
+  };
+}
+
 export type MuscleGroup = { id: string; name: string };
 
 export async function listMuscleGroups(): Promise<MuscleGroup[]> {

@@ -152,6 +152,18 @@ in the app.
 **`template_exercises`** — `id`, `template_id` (cascade delete), `exercise_id`, `position`,
 `target_sets` (optional), `target_reps` (optional). Duplicating a template = copying these rows.
 
+**`plans`** — `id`, `user_id`, `name`, timestamps. An ordered, repeating list of workout
+templates (e.g. Push, Pull, Legs) — no calendar days, no rest days.
+
+**`plan_workouts`** — `id`, `plan_id` (cascade delete), `template_id` (cascade delete — a plan
+points at *live* templates, not a snapshot), `position`. `profiles.active_plan_id` (nullable)
++ `active_plan_position` track which plan is active and where in its rotation the user is.
+Finishing the workout at that position (matched by `template_id`, inside `save_workout`)
+advances the position, looping back to 0 after the last one; finishing any other workout, or
+`skip_active_plan()`, moves the position without changing the plan's contents. A trigger on
+`profiles` rejects pointing `active_plan_id` at another user's plan and resets the position to
+0 whenever the active plan changes.
+
 **`workouts`** — completed workouts only. `id` (client-generated UUID), `user_id`,
 `template_id` (nullable, `ON DELETE SET NULL`), `name` (snapshot, e.g. "Push Day"),
 `started_at`, `finished_at`, `notes`, timestamps. Check: `finished_at >= started_at`.
