@@ -32,7 +32,14 @@ type RawTemplate = {
   template_exercises: { position: number; target_sets: number | null; target_reps: number | null; exercises: { name: string } | null }[];
 };
 
-type RawExercise = { id: string; name: string; equipment: string | null; archived_at: string | null; created_at: string };
+type RawExercise = {
+  id: string;
+  name: string;
+  equipment: string | null;
+  archived_at: string | null;
+  created_at: string;
+  exercise_muscles: { muscle_group_id: string; role: string }[];
+};
 
 export type ExportData = {
   exportedAt: string;
@@ -56,7 +63,14 @@ export type ExportData = {
     notes: string | null;
     exercises: { name: string; targetSets: number | null; targetReps: number | null }[];
   }[];
-  exercises: { id: string; name: string; equipment: string | null; archived: boolean }[];
+  exercises: {
+    id: string;
+    name: string;
+    equipment: string | null;
+    archived: boolean;
+    primaryMuscles: string[];
+    secondaryMuscles: string[];
+  }[];
 };
 
 /** Fetches everything needed for an export, as the signed-in user. */
@@ -78,7 +92,11 @@ export async function buildExportData(): Promise<ExportData> {
         .select("id, name, notes, created_at, template_exercises(position, target_sets, target_reps, exercises(name))")
         .order("name")
         .abortSignal(signal),
-      supabase.from("exercises").select("id, name, equipment, archived_at, created_at").order("name").abortSignal(signal),
+      supabase
+        .from("exercises")
+        .select("id, name, equipment, archived_at, created_at, exercise_muscles(muscle_group_id, role)")
+        .order("name")
+        .abortSignal(signal),
     ]);
   if (workoutsError) throw workoutsError;
   if (templatesError) throw templatesError;
@@ -118,13 +136,20 @@ export async function buildExportData(): Promise<ExportData> {
         .sort((a, b) => a.position - b.position)
         .map((te) => ({ name: te.exercises?.name ?? "Unknown exercise", targetSets: te.target_sets, targetReps: te.target_reps })),
     })),
-    exercises: (exercises as RawExercise[]).map((e) => ({ id: e.id, name: e.name, equipment: e.equipment, archived: e.archived_at !== null })),
+    exercises: (exercises as RawExercise[]).map((e) => ({
+      id: e.id,
+      name: e.name,
+      equipment: e.equipment,
+      archived: e.archived_at !== null,
+      primaryMuscles: e.exercise_muscles.filter((m) => m.role === "primary").map((m) => m.muscle_group_id),
+      secondaryMuscles: e.exercise_muscles.filter((m) => m.role === "secondary").map((m) => m.muscle_group_id),
+    })),
   };
 }
 
 function csvField(value: string | number | boolean | null): string {
   const s = value === null ? "" : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 /** One row per logged set — the format most useful for spreadsheet analysis. */
