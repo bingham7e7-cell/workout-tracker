@@ -77,7 +77,7 @@ export function TemplateEditor({ initial }: { initial: (TemplateSummary & { note
     if (!initial || busy) return;
     const parsed = templatePayloadSchema.safeParse({
       id: crypto.randomUUID(),
-      name: `${initial.name} copy`.slice(0, 100),
+      name: `${name} copy`.slice(0, 100),
       notes: initial.notes,
       exercises: rows.map((r) => ({ exercise_id: r.exerciseId, target_sets: toInt(r.sets), target_reps: toInt(r.reps) })),
     });

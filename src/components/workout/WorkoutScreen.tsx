@@ -39,8 +39,11 @@ export function WorkoutScreen() {
   const [saved, setSaved] = useState(false);
   // A ref (not state) so a lightning-fast double tap can't slip through.
   const savingRef = useRef(false);
-  // Exercise ids we've already asked the server for "last time" values.
+  // Exercise ids we've already asked the server for "last time" values (successfully, or exhausted retries).
   const fetchedPreviousRef = useRef(new Set<string>());
+  // Retry attempts made per exercise id, so a flaky network doesn't retry forever.
+  const previousAttemptsRef = useRef(new Map<string, number>());
+  const [previousRetryTick, setPreviousRetryTick] = useState(0);
 
   /** Apply a change to the stored workout; the screen re-renders from storage. */
   function commit(change: (d: WorkoutDraft) => WorkoutDraft) {
@@ -62,7 +65,22 @@ export function WorkoutScreen() {
       .rpc("previous_exercise_sets", { p_exercise_ids: missing })
       .abortSignal(timeoutSignal())
       .then(({ data, error }) => {
-        if (error || !data) return; // Not critical: the workout still works without it.
+        if (error || !data) {
+          // Not critical: the workout still works without it. Retry a few times (a
+          // gym has flaky signal) before giving up quietly for the rest of the session.
+          const stillRetrying = missing.filter((id) => {
+            const attempts = (previousAttemptsRef.current.get(id) ?? 0) + 1;
+            previousAttemptsRef.current.set(id, attempts);
+            // Under the retry cap: un-mark so the next attempt re-fetches it.
+            // At the cap: leave it marked "fetched" so it's left alone from now on.
+            if (attempts < 3) fetchedPreviousRef.current.delete(id);
+            return attempts < 3;
+          });
+          if (stillRetrying.length > 0) {
+            setTimeout(() => setPreviousRetryTick((t) => t + 1), 5000);
+          }
+          return;
+        }
         type RawSet = { weight_kg: number | string; reps: number; rpe: number | string | null; is_warmup: boolean };
         const byExercise = new Map<string, PreviousSet[]>(
           (data as { exercise_id: string; sets: RawSet[] }[]).map((r) => [
@@ -85,7 +103,7 @@ export function WorkoutScreen() {
         saveDraft(next);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.exercises.map((e) => e.exerciseId).join(",")]);
+  }, [draft?.exercises.map((e) => e.exerciseId).join(","), previousRetryTick]);
 
   function clearSetError(setKey: string) {
     setSetErrors((errs) => {

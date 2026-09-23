@@ -25,7 +25,7 @@ language sql security invoker stable set search_path = '' as $$
   from public.workout_exercises we
   join public.workouts w on w.id = we.workout_id
   where we.exercise_id = any(p_exercise_ids)
-  order by we.exercise_id, w.started_at desc, w.created_at desc;
+  order by we.exercise_id, w.started_at desc, w.created_at desc, we.id desc;
 $$;
 
 revoke all on function public.previous_exercise_sets(uuid[]) from public, anon;
