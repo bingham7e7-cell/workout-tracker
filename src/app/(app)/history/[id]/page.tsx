@@ -45,9 +45,17 @@ export default async function WorkoutDetailPage({ params }: PageProps<"/history/
         })}
       </div>
 
-      <Link href="/history" className="mt-6 flex h-12 items-center justify-center rounded-xl bg-zinc-800 font-medium">
-        Back to history
-      </Link>
+      <div className="mt-6 flex gap-2">
+        <Link href="/history" className="flex h-12 flex-1 items-center justify-center rounded-xl bg-zinc-800 font-medium">
+          Back to history
+        </Link>
+        <Link
+          href={`/history/${workout.id}/edit`}
+          className="flex h-12 flex-1 items-center justify-center rounded-xl bg-zinc-800 font-medium text-emerald-400"
+        >
+          Edit
+        </Link>
+      </div>
       <DeleteWorkoutButton id={workout.id} name={workout.name} />
     </>
   );

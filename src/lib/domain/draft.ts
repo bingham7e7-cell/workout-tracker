@@ -4,7 +4,7 @@
  * keeps the logic easy to test and safe to persist after every change.
  */
 import { MAX_REPS, MAX_WEIGHT_KG, workoutPayloadSchema, firstIssue, type WorkoutPayload } from "./schemas";
-import { toKg, type WeightUnit } from "./units";
+import { formatWeight, toKg, type WeightUnit } from "./units";
 
 export type DraftSet = {
   key: string;
@@ -17,11 +17,16 @@ export type DraftSet = {
   done: boolean;
 };
 
+/** A set as logged the last time this exercise was performed (any workout). */
+export type PreviousSet = { weightKg: number; reps: number; rpe: number | null; isWarmup: boolean };
+
 export type DraftExercise = {
   key: string;
   exerciseId: string;
   name: string;
   sets: DraftSet[];
+  /** undefined = not fetched yet, null = fetched, no history, array = last time's sets. */
+  previous?: PreviousSet[] | null;
 };
 
 export type WorkoutDraft = {
@@ -125,6 +130,22 @@ export function removeSet(draft: WorkoutDraft, exKey: string, setKey: string): W
   return mapExercise(draft, exKey, (ex) => ({ ...ex, sets: ex.sets.filter((s) => s.key !== setKey) }));
 }
 
+/** Records what was fetched for "last time you did this exercise" (`null` = no prior history). */
+export function setPreviousSets(draft: WorkoutDraft, exKey: string, previous: PreviousSet[] | null): WorkoutDraft {
+  return mapExercise(draft, exKey, (ex) => ({ ...ex, previous }));
+}
+
+/** "135x5 (W), 225x5, 225x5 @8.5" — a one-line summary of the last session's sets. */
+export function summarizePreviousSets(previous: PreviousSet[], unit: WeightUnit): string {
+  return previous
+    .map((s) => {
+      const base = `${formatWeight(s.weightKg, unit)}×${s.reps}`;
+      const rpe = s.rpe != null ? ` @${s.rpe}` : "";
+      return s.isWarmup ? `${base} (W)${rpe}` : `${base}${rpe}`;
+    })
+    .join(", ");
+}
+
 /** Parses a typed number; accepts a comma as the decimal separator. */
 export function parseNumber(text: string): number | null {
   const cleaned = text.trim().replace(",", ".");
@@ -197,6 +218,7 @@ export function countSets(draft: WorkoutDraft): { logged: number; unlogged: numb
 export function toSavePayload(
   draft: WorkoutDraft,
   finishedAt: Date = new Date(),
+  notes: string | null = null,
 ): { payload: WorkoutPayload } | { error: string } {
   const exercises = [];
   for (const ex of draft.exercises) {
@@ -224,9 +246,52 @@ export function toSavePayload(
     template_id: draft.templateId,
     started_at: started.toISOString(),
     finished_at: finished.toISOString(),
-    notes: null,
+    notes,
     exercises,
   });
   if (!result.success) return { error: firstIssue(result.error) };
   return { payload: result.data };
+}
+
+/** A saved workout, in the shape needed to build an edit draft (structurally compatible with `WorkoutDetail`). */
+export type EditableWorkout = {
+  id: string;
+  name: string;
+  startedAt: string;
+  finishedAt: string;
+  notes: string | null;
+  exercises: {
+    exerciseId: string;
+    name: string;
+    sets: { weightKg: number; reps: number; rpe: number | null; isWarmup: boolean }[];
+  }[];
+};
+
+/**
+ * Turns an already-saved workout back into a draft for editing. Every set
+ * starts "logged" (✓), since it was already recorded; unchecking one removes
+ * it when saved, same as the active workout screen.
+ */
+export function editDraftFromWorkout(workout: EditableWorkout, unit: WeightUnit): WorkoutDraft {
+  return {
+    version: 1,
+    id: workout.id,
+    name: workout.name,
+    templateId: null,
+    unit,
+    startedAt: workout.startedAt,
+    exercises: workout.exercises.map((ex) => ({
+      key: newKey(),
+      exerciseId: ex.exerciseId,
+      name: ex.name,
+      sets: ex.sets.map((s) => ({
+        key: newKey(),
+        weight: formatWeight(s.weightKg, unit),
+        reps: String(s.reps),
+        rpe: s.rpe,
+        isWarmup: s.isWarmup,
+        done: true,
+      })),
+    })),
+  };
 }

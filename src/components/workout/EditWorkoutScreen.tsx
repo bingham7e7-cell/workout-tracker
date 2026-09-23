@@ -2,90 +2,44 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ExercisePicker } from "@/components/ExercisePicker";
 import { SetRow } from "@/components/workout/SetRow";
 import {
   addExercise,
   addSet,
   countSets,
+  editDraftFromWorkout,
   moveExercise,
   removeExercise,
   removeSet,
   renameDraft,
-  setPreviousSets,
-  summarizePreviousSets,
   toSavePayload,
   toggleSetDone,
   updateSet,
-  type PreviousSet,
+  type EditableWorkout,
   type WorkoutDraft,
 } from "@/lib/domain/draft";
-import { clearDraft, loadDraft, saveDraft, useActiveDraft } from "@/lib/client/draftStorage";
 import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { formatTime } from "@/lib/format";
+import type { WeightUnit } from "@/lib/domain/units";
 
-export function WorkoutScreen() {
+/** Edits an already-saved workout: same set-logging UI as the active workout, backed by `update_workout`. */
+export function EditWorkoutScreen({ workout, unit }: { workout: EditableWorkout; unit: WeightUnit }) {
   const router = useRouter();
-  const { draft, ready } = useActiveDraft();
+  const [draft, setDraft] = useState<WorkoutDraft>(() => editDraftFromWorkout(workout, unit));
   const [picking, setPicking] = useState(false);
   const [setErrors, setSetErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
-  const [storageWarning, setStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  // A ref (not state) so a lightning-fast double tap can't slip through.
   const savingRef = useRef(false);
-  // Exercise ids we've already asked the server for "last time" values.
-  const fetchedPreviousRef = useRef(new Set<string>());
 
-  /** Apply a change to the stored workout; the screen re-renders from storage. */
   function commit(change: (d: WorkoutDraft) => WorkoutDraft) {
-    const current = loadDraft();
-    if (!current || savingRef.current) return;
-    if (!saveDraft(change(current))) setStorageWarning(true);
+    if (savingRef.current) return;
+    setDraft(change);
   }
-
-  // Fetch "last time" values for any exercise in the draft we haven't asked about yet.
-  useEffect(() => {
-    if (!draft) return;
-    const missing = draft.exercises
-      .map((ex) => ex.exerciseId)
-      .filter((id) => !fetchedPreviousRef.current.has(id));
-    if (missing.length === 0) return;
-    missing.forEach((id) => fetchedPreviousRef.current.add(id));
-
-    getSupabaseBrowser()
-      .rpc("previous_exercise_sets", { p_exercise_ids: missing })
-      .abortSignal(timeoutSignal())
-      .then(({ data, error }) => {
-        if (error || !data) return; // Not critical: the workout still works without it.
-        type RawSet = { weight_kg: number | string; reps: number; rpe: number | string | null; is_warmup: boolean };
-        const byExercise = new Map<string, PreviousSet[]>(
-          (data as { exercise_id: string; sets: RawSet[] }[]).map((r) => [
-            r.exercise_id,
-            r.sets.map((s) => ({
-              weightKg: Number(s.weight_kg),
-              reps: s.reps,
-              rpe: s.rpe == null ? null : Number(s.rpe),
-              isWarmup: s.is_warmup,
-            })),
-          ]),
-        );
-        const current = loadDraft();
-        if (!current) return;
-        let next = current;
-        for (const ex of current.exercises) {
-          if (!missing.includes(ex.exerciseId)) continue;
-          next = setPreviousSets(next, ex.key, byExercise.get(ex.exerciseId) ?? null);
-        }
-        saveDraft(next);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.exercises.map((e) => e.exerciseId).join(",")]);
 
   function clearSetError(setKey: string) {
     setSetErrors((errs) => {
@@ -97,36 +51,28 @@ export function WorkoutScreen() {
   }
 
   function toggleDone(exKey: string, setKey: string) {
-    const current = loadDraft();
-    if (!current || savingRef.current) return;
-    const result = toggleSetDone(current, exKey, setKey);
+    if (savingRef.current) return;
+    const result = toggleSetDone(draft, exKey, setKey);
     if (result.error) {
       setSetErrors((errs) => ({ ...errs, [setKey]: result.error! }));
       return;
     }
     clearSetError(setKey);
-    if (!saveDraft(result.draft)) setStorageWarning(true);
+    setDraft(result.draft);
   }
 
-  async function finish() {
+  async function save() {
     if (savingRef.current) return;
-    const current = loadDraft();
-    if (!current) return;
     setError(null);
     setSaveFailed(false);
 
-    const { logged, unlogged } = countSets(current);
+    const { logged } = countSets(draft);
     if (logged === 0) {
-      setError("Log at least one set (tap ✓) before finishing.");
+      setError("Log at least one set (tap ✓), or delete the workout instead.");
       return;
     }
-    const message =
-      unlogged > 0
-        ? `Finish and save this workout?\n\n${unlogged} set${unlogged === 1 ? "" : "s"} without a ✓ will be discarded.`
-        : "Finish and save this workout?";
-    if (!window.confirm(message)) return;
 
-    const built = toSavePayload(current);
+    const built = toSavePayload(draft, new Date(workout.finishedAt), workout.notes);
     if ("error" in built) {
       setError(built.error);
       return;
@@ -135,26 +81,14 @@ export function WorkoutScreen() {
     savingRef.current = true;
     setSaving(true);
     try {
-      const supabase = getSupabaseBrowser();
-      const { data, error } = await supabase
-        .rpc("save_workout", { p_workout: built.payload })
+      const { error } = await getSupabaseBrowser()
+        .rpc("update_workout", { p_workout: built.payload })
         .abortSignal(timeoutSignal(30_000));
       if (error) throw error;
-      if ((data as { duplicate?: boolean } | null)?.duplicate) {
-        // An earlier attempt already reached the database (its reply was lost).
-        // Apply this latest version on top, so edits made since then aren't dropped.
-        const { error: updateError } = await supabase
-          .rpc("update_workout", { p_workout: built.payload })
-          .abortSignal(timeoutSignal(30_000));
-        if (updateError) throw updateError;
-      }
-      // Only now — after the database confirmed — remove it from the phone.
-      setSaved(true);
-      clearDraft();
-      router.replace(`/history/${built.payload.id}`);
+      router.replace(`/history/${workout.id}`);
       router.refresh();
     } catch (e) {
-      setError(`${describeError(e)} Your workout is still safe on this phone.`);
+      setError(describeError(e));
       setSaveFailed(true);
       setSignedOut(isSignedOutError(e));
       savingRef.current = false;
@@ -163,33 +97,14 @@ export function WorkoutScreen() {
     }
   }
 
-  function discard() {
-    if (!window.confirm("Discard this workout? Everything you logged in it will be lost.")) return;
-    clearDraft();
-    router.replace("/");
-  }
-
-  if (!ready) return null;
-  if (saved) return <p className="mt-24 text-center text-lg">Saved ✓</p>;
-  if (!draft) {
-    return (
-      <div className="mt-24 space-y-4 text-center">
-        <p className="text-lg">No workout in progress.</p>
-        <Link href="/" className="inline-flex h-12 items-center rounded-xl bg-emerald-500 px-6 font-semibold text-zinc-950">
-          Go to start
-        </Link>
-      </div>
-    );
-  }
-
   const { logged } = countSets(draft);
 
   return (
     <div className="pb-8">
       <header className="sticky top-0 z-10 -mx-4 flex items-center gap-2 border-b border-zinc-900 bg-zinc-950/95 px-4 pt-safe backdrop-blur">
         <Link
-          href="/"
-          aria-label="Home (your workout stays in progress)"
+          href={`/history/${workout.id}`}
+          aria-label="Cancel editing"
           className="-ml-2 flex h-12 w-10 shrink-0 items-center justify-center text-2xl text-zinc-400"
         >
           ‹
@@ -202,25 +117,17 @@ export function WorkoutScreen() {
             onChange={(e) => commit((d) => renameDraft(d, e.target.value))}
             className="w-full truncate bg-transparent text-xl font-bold outline-none"
           />
-          <div className="text-sm text-zinc-400">
-            Started {formatTime(draft.startedAt)} · {logged} set{logged === 1 ? "" : "s"} logged
-          </div>
+          <div className="text-sm text-zinc-400">{logged} set{logged === 1 ? "" : "s"} logged</div>
         </div>
         <button
-          onClick={finish}
+          onClick={save}
           disabled={saving}
           className="h-12 shrink-0 rounded-xl bg-emerald-500 px-5 text-lg font-bold text-zinc-950 disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Finish"}
+          {saving ? "Saving…" : "Save"}
         </button>
       </header>
 
-      {storageWarning && (
-        <p className="mt-3 rounded-lg bg-amber-950 p-3 text-sm text-amber-200">
-          This phone isn&apos;t letting the app store data (private browsing or storage full). Keep this screen open
-          until you finish.
-        </p>
-      )}
       {error && (
         <div className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">
           {error}
@@ -230,7 +137,7 @@ export function WorkoutScreen() {
             </Link>
           )}
           {!saving && saveFailed && !signedOut && (
-            <button onClick={finish} className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold">
+            <button onClick={save} className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold">
               Try saving again
             </button>
           )}
@@ -263,8 +170,7 @@ export function WorkoutScreen() {
                 <button
                   aria-label="Remove exercise"
                   onClick={() => {
-                    const hasLogged = ex.sets.some((s) => s.done);
-                    if (!hasLogged || window.confirm(`Remove ${ex.name} and its logged sets?`)) {
+                    if (window.confirm(`Remove ${ex.name} and its logged sets from this workout?`)) {
                       commit((d) => removeExercise(d, ex.key));
                     }
                   }}
@@ -273,12 +179,6 @@ export function WorkoutScreen() {
                   ✕
                 </button>
               </div>
-
-              {ex.previous && ex.previous.length > 0 && (
-                <p className="mb-2 truncate px-1 text-sm text-zinc-400">
-                  Last time: {summarizePreviousSets(ex.previous, draft.unit)}
-                </p>
-              )}
 
               <div className="mb-1 grid grid-cols-[2.75rem_1fr_1fr_2.75rem_3.5rem] gap-2 px-1 text-center text-xs uppercase tracking-wide text-zinc-500">
                 <span>Set</span>
@@ -325,10 +225,6 @@ export function WorkoutScreen() {
         className="mt-6 h-14 w-full rounded-xl bg-zinc-800 text-lg font-semibold text-emerald-400 active:bg-zinc-700"
       >
         + Add exercise
-      </button>
-
-      <button onClick={discard} className="mt-8 h-12 w-full text-red-400">
-        Discard workout
       </button>
 
       {picking && (
