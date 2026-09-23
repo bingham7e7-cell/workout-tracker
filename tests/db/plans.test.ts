@@ -54,6 +54,19 @@ async function activePosition(user: string): Promise<number> {
   return r.rows[0].active_plan_position;
 }
 
+/** The template the plan currently suggests, by RANK (not raw position) — same logic as getActivePlanNext. */
+async function effectiveNextTemplate(user: string, planId: string): Promise<string> {
+  const r = await db.asUser(user, () =>
+    db.query<{ template_id: string }>(
+      `select template_id from plan_workouts where plan_id = $1 order by position
+       offset (select active_plan_position from profiles where id = $2) % (select count(*) from plan_workouts where plan_id = $1)
+       limit 1`,
+      [planId, user],
+    ),
+  );
+  return r.rows[0].template_id;
+}
+
 /** Builds and saves a minimal finished workout for `templateId` (or none, if null). */
 async function finishWorkout(user: string, templateId: string | null, exerciseName: string, exerciseId_: string) {
   let draft: WorkoutDraft = createDraft({
@@ -115,6 +128,47 @@ describe("plan advancing", () => {
     const bench = await exerciseId(alice, "Barbell Bench Press");
     await db.asUser(alice, () => db.query("update profiles set active_plan_id = null where id = $1", [alice]));
     await expect(finishWorkout(alice, null, "Barbell Bench Press", bench)).resolves.not.toThrow();
+  });
+
+  test("deleting a mid-plan template (leaving a gap in position) doesn't strand the plan", async () => {
+    const a = await makeTemplate(alice, "Gap A", "Barbell Bench Press");
+    const b = await makeTemplate(alice, "Gap B", "Barbell Row");
+    const c = await makeTemplate(alice, "Gap C", "Back Squat");
+    const d = await makeTemplate(alice, "Gap D", "Overhead Press");
+    const plan = await makePlan(alice, "Gap plan", [a, b, c, d]);
+    await setActivePlan(alice, plan);
+
+    // Advance to position 2 (pointing at C).
+    await finishWorkout(alice, a, "Barbell Bench Press", await exerciseId(alice, "Barbell Bench Press"));
+    await finishWorkout(alice, b, "Barbell Row", await exerciseId(alice, "Barbell Row"));
+    expect(await activePosition(alice)).toBe(2);
+
+    // Delete C: its plan_workouts row cascades away, leaving positions 0,1,3 (a gap at 2).
+    await db.asUser(alice, () => db.query("delete from templates where id = $1", [c]));
+    expect(await effectiveNextTemplate(alice, plan)).toBe(d); // rank 2 of [A,B,D] is D, not stuck on the deleted C
+
+    // Finishing what the plan now suggests (D) must still advance it, looping back to A.
+    await finishWorkout(alice, d, "Overhead Press", await exerciseId(alice, "Overhead Press"));
+    expect(await effectiveNextTemplate(alice, plan)).toBe(a);
+  });
+
+  test("shrinking the active plan below the current position doesn't strand it", async () => {
+    const a = await makeTemplate(alice, "Shrink A", "Barbell Bench Press");
+    const b = await makeTemplate(alice, "Shrink B", "Barbell Row");
+    const c = await makeTemplate(alice, "Shrink C", "Back Squat");
+    const d = await makeTemplate(alice, "Shrink D", "Overhead Press");
+    const plan = await makePlan(alice, "Shrink plan", [a, b, c, d]);
+    await setActivePlan(alice, plan);
+    await db.asUser(alice, () => db.query("update profiles set active_plan_position = 3 where id = $1", [alice]));
+
+    // Edit the plan down to just [A, B] — active_plan_position (3) is now out of the raw range.
+    await db.asUser(alice, () =>
+      db.query("select save_plan($1::jsonb)", [JSON.stringify({ id: plan, name: "Shrink plan", template_ids: [a, b] })]),
+    );
+    expect(await effectiveNextTemplate(alice, plan)).toBe(b); // rank 3 % 2 = 1 -> B, not stuck
+
+    await finishWorkout(alice, b, "Barbell Row", await exerciseId(alice, "Barbell Row"));
+    expect(await effectiveNextTemplate(alice, plan)).toBe(a); // advanced to rank (1+1)%2=0 -> A
   });
 });
 

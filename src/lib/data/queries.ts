@@ -8,7 +8,7 @@ import { getSupabaseServer } from "@/lib/supabase/server";
 import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
 import { isTimeZoneMode, type TimeZoneMode } from "@/lib/format";
-import type { MuscleRole, WorkloadSet } from "@/lib/domain/workload";
+import { WORKLOAD_WINDOW_DAYS, type MuscleRole, type WorkloadSet } from "@/lib/domain/workload";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
   const supabase = await getSupabaseServer();
@@ -172,17 +172,26 @@ export async function getWorkout(id: string): Promise<WorkoutDetail | null> {
   };
 }
 
-export type ExerciseListItem = { id: string; name: string; equipment: string | null; archived: boolean };
+export type ExerciseListItem = {
+  id: string;
+  name: string;
+  equipment: string | null;
+  archived: boolean;
+  addedByImport: boolean;
+};
 
 export async function listExercises(): Promise<ExerciseListItem[]> {
   const supabase = await getSupabaseServer();
-  const { data, error } = await supabase.from("exercises").select("id, name, equipment, archived_at").order("name");
+  const { data, error } = await supabase.from("exercises").select("id, name, equipment, archived_at, added_via").order("name");
   if (error) throw error;
-  return (data as { id: string; name: string; equipment: string | null; archived_at: string | null }[]).map((e) => ({
+  return (
+    data as { id: string; name: string; equipment: string | null; archived_at: string | null; added_via: string | null }[]
+  ).map((e) => ({
     id: e.id,
     name: e.name,
     equipment: e.equipment,
     archived: e.archived_at !== null,
+    addedByImport: e.added_via === "import",
   }));
 }
 
@@ -349,7 +358,7 @@ export async function getActivePlanNext(): Promise<ActivePlanNext | null> {
   const ordered = [...plan.plan_workouts].sort((a, b) => a.position - b.position);
   const index = row!.active_plan_position % ordered.length;
   const pw = ordered[index];
-  if (!pw.templates) return null; // The template behind this slot was deleted (rare: cascades away on its own next save).
+  if (!pw.templates) return null; // Defensive only: deleting a template cascades its plan_workouts row away immediately, so this shouldn't normally be reachable.
 
   return {
     planId: plan.id,
@@ -417,11 +426,6 @@ export async function listMuscleGroups(): Promise<MuscleGroup[]> {
   if (error) throw error;
   return data;
 }
-
-// Contributions decay by half every 48h (see lib/domain/workload.ts); by 21 days
-// out a set's contribution is under 0.1% of its starting value, so this window
-// captures everything that could meaningfully affect the current workload.
-const WORKLOAD_WINDOW_DAYS = 21;
 
 type WorkloadWorkoutRow = {
   finished_at: string;

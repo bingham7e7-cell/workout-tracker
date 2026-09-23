@@ -28,9 +28,13 @@ import { clearDraft, loadDraft, saveDraft, useActiveDraft } from "@/lib/client/d
 import { getCachedPreviousSets, setCachedPreviousSets } from "@/lib/client/previousSetsCache";
 import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { formatTime, type TimeZoneMode } from "@/lib/format";
+import { formatTime } from "@/lib/format";
 
-export function WorkoutScreen({ tz }: { tz: TimeZoneMode }) {
+// No time-zone prop here on purpose: this screen must keep working fully
+// offline (see workout/page.tsx), so it never depends on a server fetch of
+// the Settings > Time zone choice. formatTime defaults to the device's own
+// time zone either way.
+export function WorkoutScreen() {
   const router = useRouter();
   const { draft, ready } = useActiveDraft();
   const [picking, setPicking] = useState(false);
@@ -328,7 +332,7 @@ export function WorkoutScreen({ tz }: { tz: TimeZoneMode }) {
             className="w-full truncate bg-transparent text-xl font-bold outline-none"
           />
           <div className="text-sm text-zinc-400">
-            Started {formatTime(draft.startedAt, tz)} · {logged} set{logged === 1 ? "" : "s"} logged
+            Started {formatTime(draft.startedAt)} · {logged} set{logged === 1 ? "" : "s"} logged
           </div>
         </div>
         <button

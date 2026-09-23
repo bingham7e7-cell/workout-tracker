@@ -32,8 +32,21 @@ function updateExercise(
   };
 }
 
-export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: ExerciseOption[]; muscleGroups: MuscleOption[] }) {
+export function AiPlanImportScreen({
+  exercises,
+  promptExerciseNames,
+  muscleGroups,
+}: {
+  /** Every exercise (archived included) — used for name matching and the duplicate-name check. */
+  exercises: ExerciseOption[];
+  /** Active exercises only — suggested to the AI in the copied prompt. */
+  promptExerciseNames: string[];
+  muscleGroups: MuscleOption[];
+}) {
   const router = useRouter();
+  // Generated once (not per save attempt), so retrying after a lost reply
+  // reuses the same id instead of importing the plan a second time.
+  const [planId] = useState(() => crypto.randomUUID());
   const [reply, setReply] = useState("");
   const [problems, setProblems] = useState<string[]>([]);
   const [preview, setPreview] = useState<PreviewPlan | null>(null);
@@ -42,10 +55,10 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const exerciseNames = useMemo(() => exercises.map((e) => e.name), [exercises]);
+  const allExerciseNames = useMemo(() => exercises.map((e) => e.name), [exercises]);
   const muscleNames = useMemo(() => muscleGroups.map((m) => m.name), [muscleGroups]);
   const muscleNameToId = useMemo(() => new Map(muscleGroups.map((m) => [m.name.toLowerCase(), m.id])), [muscleGroups]);
-  const prompt = useMemo(() => buildImportPrompt(exerciseNames, muscleNames), [exerciseNames, muscleNames]);
+  const prompt = useMemo(() => buildImportPrompt(promptExerciseNames, muscleNames), [promptExerciseNames, muscleNames]);
 
   async function copyPrompt() {
     await navigator.clipboard.writeText(prompt);
@@ -67,14 +80,14 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
       setPreview(null);
       return;
     }
-    const built = buildPreview(result.data, exercises);
+    const built = buildPreview(result.data, exercises, muscleNames);
     setPreview(built);
-    setProblems(validateImportPreview(built, muscleNames, exerciseNames));
+    setProblems(validateImportPreview(built, muscleNames, allExerciseNames));
   }
 
   function revalidate(next: PreviewPlan) {
     setPreview(next);
-    setProblems(validateImportPreview(next, muscleNames, exerciseNames));
+    setProblems(validateImportPreview(next, muscleNames, allExerciseNames));
   }
 
   function swapForExisting(workoutKey: string, exerciseKey: string, existing: ExerciseOption) {
@@ -115,11 +128,27 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
     revalidate(updateExercise(preview, workoutKey, exerciseKey, (e) => ({ ...e, name })));
   }
 
+  /** Removes a muscle name the AI gave that isn't on the valid list — the only way to clear one, since it has no toggle chip of its own. */
+  function removeMuscle(workoutKey: string, exerciseKey: string, muscleName: string) {
+    if (!preview) return;
+    revalidate(
+      updateExercise(preview, workoutKey, exerciseKey, (e) =>
+        e.kind !== "new"
+          ? e
+          : {
+              ...e,
+              primaryMuscles: e.primaryMuscles.filter((m) => m !== muscleName),
+              secondaryMuscles: e.secondaryMuscles.filter((m) => m !== muscleName),
+            },
+      ),
+    );
+  }
+
   async function save() {
     if (!preview || problems.length > 0 || saving) return;
     setSaving(true);
     setSaveError(null);
-    const payload = buildImportPayload(preview, muscleNameToId);
+    const payload = buildImportPayload(preview, muscleNameToId, planId);
     const { data, error } = await getSupabaseBrowser()
       .rpc("import_plan", { p_plan: payload })
       .abortSignal(timeoutSignal(30_000));
@@ -151,8 +180,8 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
           <div className="rounded-lg bg-red-950 p-3 text-red-200">
             <p className="mb-1 font-semibold">That reply couldn&apos;t be used:</p>
             <ul className="list-disc space-y-1 pl-5">
-              {problems.map((p) => (
-                <li key={p}>{p}</li>
+              {problems.map((p, i) => (
+                <li key={i}>{p}</li>
               ))}
             </ul>
             <button onClick={copyFixRequest} className="mt-3 h-11 w-full rounded-lg bg-red-900 font-semibold">
@@ -257,6 +286,18 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
                           </button>
                         );
                       })}
+                      {[...ex.primaryMuscles, ...ex.secondaryMuscles]
+                        .filter((name) => !muscleGroups.some((m) => m.name === name))
+                        .map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => removeMuscle(w.key, ex.key, name)}
+                            className="h-9 rounded-full bg-red-950 px-3 text-xs text-red-300"
+                          >
+                            {name} ✕
+                          </button>
+                        ))}
                     </div>
                   </div>
                 )}
@@ -270,8 +311,8 @@ export function AiPlanImportScreen({ exercises, muscleGroups }: { exercises: Exe
         <div className="rounded-lg bg-red-950 p-3 text-red-200">
           <p className="mb-1 font-semibold">Fix these before saving:</p>
           <ul className="list-disc space-y-1 pl-5">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
+            {problems.map((p, i) => (
+              <li key={i}>{p}</li>
             ))}
           </ul>
         </div>

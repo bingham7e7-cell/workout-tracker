@@ -35,6 +35,12 @@ export const MAX_RPE_EFFORT = 1.0;
 export const PRIMARY_ROLE_WEIGHT = 1;
 export const SECONDARY_ROLE_WEIGHT = 0.5;
 
+// Contributions decay by half every RECENCY_HALF_LIFE_HOURS; by 21 days out a
+// set's contribution is under 0.1% of its starting value, so this window
+// (used by the query that fetches sets to feed muscleWorkload) captures
+// everything that could meaningfully affect the current workload.
+export const WORKLOAD_WINDOW_DAYS = 21;
+
 function effortOf(rpe: number | null): number {
   if (rpe === null) return DEFAULT_EFFORT;
   return Math.min(MAX_RPE_EFFORT, Math.max(MIN_RPE_EFFORT, rpe / 10));

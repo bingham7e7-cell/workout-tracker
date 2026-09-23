@@ -3,12 +3,16 @@
 --
 -- A plan is an ordered, repeating list of workout templates (e.g. Push, Pull,
 -- Legs) with no calendar days or rest days. A user has zero or one active
--- plan; the home screen shows the workout at `active_plan_position` in it.
--- Finishing that exact workout (matched by template id) advances the
--- position, looping back to 0 after the last one. Finishing a different
--- workout, or skipping, moves the position without touching the plan's
--- contents. Plans reference *live* templates (not a snapshot) — editing a
--- template changes what the plan shows next, same as starting it directly.
+-- plan; `active_plan_position` is a RANK (0-indexed, wrapped with modulo)
+-- among the plan's *current* rows ordered by position — not compared
+-- against the position column directly, since positions can develop gaps
+-- (deleting a mid-plan template cascades its row away) or the plan can
+-- shrink. The home screen shows the workout at that rank. Finishing that
+-- exact workout (matched by template id) advances the rank, looping back to
+-- 0 after the last one. Finishing a different workout, or skipping, moves
+-- the rank without touching the plan's contents. Plans reference *live*
+-- templates (not a snapshot) — editing a template changes what the plan
+-- shows next, same as starting it directly.
 -- =============================================================================
 
 create table public.plans (
@@ -144,9 +148,12 @@ $$;
 create or replace function public.save_workout(p_workout jsonb) returns jsonb
 language plpgsql security invoker set search_path = '' as $$
 declare
-  v_uid  uuid := auth.uid();
-  v_id   uuid;
-  v_rows integer;
+  v_uid              uuid := auth.uid();
+  v_id               uuid;
+  v_rows             integer;
+  v_plan_count       integer;
+  v_plan_rank        integer;
+  v_plan_template_id uuid;
 begin
   if v_uid is null then
     raise exception 'Not signed in' using errcode = '28000';
@@ -177,19 +184,33 @@ begin
 
   perform app_private.insert_workout_contents(v_id, v_uid, p_workout -> 'exercises', '{}'::jsonb);
 
-  -- If a row of the active plan matches the position/template just finished,
-  -- there's always at least that one row for the plan, so no need to guard
-  -- against a division by zero below.
-  update public.profiles p
-     set active_plan_position = (pw.position + 1) % (
-           select count(*) from public.plan_workouts where plan_id = p.active_plan_id
-         )
+  -- Advance the active plan, if any, when the finished workout is the one it
+  -- currently suggests. `plan_workouts.position` values can develop gaps
+  -- (deleting a template mid-plan cascades its row away) or the plan can
+  -- simply shrink, so `active_plan_position` is a RANK among the plan's
+  -- *current* rows (0-indexed by position, wrapped with modulo) — never
+  -- compared against the raw position column directly. This mirrors exactly
+  -- how the home screen picks "next up" (src/lib/data/queries.ts).
+  select count(*) into v_plan_count
     from public.plan_workouts pw
-   where p.id = v_uid
-     and p.active_plan_id is not null
-     and pw.plan_id = p.active_plan_id
-     and pw.position = p.active_plan_position
-     and pw.template_id = (p_workout ->> 'template_id')::uuid;
+    join public.profiles p on p.active_plan_id = pw.plan_id
+   where p.id = v_uid;
+
+  if v_plan_count > 0 then
+    select p.active_plan_position % v_plan_count into v_plan_rank
+      from public.profiles p where p.id = v_uid;
+
+    select pw.template_id into v_plan_template_id
+      from public.plan_workouts pw
+      join public.profiles p on p.active_plan_id = pw.plan_id
+     where p.id = v_uid
+     order by pw.position
+     offset v_plan_rank limit 1;
+
+    if v_plan_template_id = (p_workout ->> 'template_id')::uuid then
+      update public.profiles set active_plan_position = (v_plan_rank + 1) % v_plan_count where id = v_uid;
+    end if;
+  end if;
 
   return jsonb_build_object('id', v_id, 'duplicate', false);
 end;

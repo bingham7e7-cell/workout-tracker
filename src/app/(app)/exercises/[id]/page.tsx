@@ -60,6 +60,7 @@ export default async function ExerciseHistoryPage({ params }: PageProps<"/exerci
             muscleNames={Object.fromEntries(muscles.map((m) => [m.muscleGroupId, m.name]))}
             figureWidth={110}
             hideDetails
+            monochrome
           />
           <div className="mt-3 space-y-1 text-sm text-zinc-400">
             {creditLines.map((line) => (

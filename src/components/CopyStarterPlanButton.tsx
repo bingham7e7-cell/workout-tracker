@@ -7,6 +7,9 @@ import { describeError, timeoutSignal } from "@/lib/client/errors";
 
 export function CopyStarterPlanButton({ starterPlanId }: { starterPlanId: string }) {
   const router = useRouter();
+  // Generated once (not per click), so retrying after a lost reply reuses
+  // the same id instead of copying the starter plan a second time.
+  const [planId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +18,7 @@ export function CopyStarterPlanButton({ starterPlanId }: { starterPlanId: string
     setBusy(true);
     setError(null);
     const { data, error } = await getSupabaseBrowser()
-      .rpc("copy_starter_plan", { p_starter_plan_id: starterPlanId })
+      .rpc("copy_starter_plan", { p_starter_plan_id: starterPlanId, p_plan_id: planId })
       .abortSignal(timeoutSignal());
     setBusy(false);
     if (error) return setError(describeError(error));

@@ -66,14 +66,15 @@ src/
     login/                   email sign-in
     auth/confirm/            magic-link landing route
     (app)/                   everything behind login
-      page.tsx               home: start workout, recent workouts
+      page.tsx               home: body diagram, 7-day strip, next-up/start, recent
       templates/             list / create / edit / duplicate / delete
+      plans/                 list / create (starter, AI, or build-your-own) / edit
       workout/               ACTIVE workout (client-side)
       history/               completed workouts; [id] view + edit
       exercises/             library + per-exercise history (Stage 4)
-      analytics/             PRs, charts (Stage 4), muscle map (Stage 5)
-      settings/              units, export (Stage 6)
-  components/                UI pieces (SetRow, NumberInput, BodyDiagram, ...)
+      analytics/             PRs, charts (Stage 4), muscle map + how-it-works (Stage 5)
+      settings/              units, time zone, export, credits (Stage 6)
+  components/                UI pieces (SetRow, NumberInput, MuscleDiagram, ...)
   lib/
     supabase/                browser + server client helpers, auth middleware
     domain/                  PURE functions, no database: units, 1RM, volume,
@@ -250,9 +251,14 @@ contribution = effort × role × recency
 muscle workload = sum of contributions  ("effective recent sets")
 ```
 
-Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high.
-The screen states this is an estimate of recent training exposure, **not** medical
-recovery or readiness.
+The body diagram (`src/components/MuscleDiagram.tsx`, using `@musclemap/react`) colors
+each muscle on a **continuous** gradient, converting the workload score to MuscleMap's
+0–100 scale at a workload of 10 = 100 (already deep into "very high"). The discrete
+buckets — 0 untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high — are still used
+for the plain-language label under the diagram when you tap a muscle (e.g. "High —
+recent workload 6.2"), just not to drive the diagram's own color scale. Every screen
+states this is an estimate of recent training exposure, **not** medical recovery or
+readiness.
 
 The 21-day query window (not 7) is intentional: with a 48-hour half-life, a set is
 still worth ~9–13% of its starting contribution at day 6–7, so a hard 7-day cutoff

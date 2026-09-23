@@ -1,8 +1,9 @@
 /**
  * AI plan import: the transactional import_plan RPC. Covers saving a mix of
  * matched (existing) and new exercises together, tagging new exercises
- * "Added by import" (added_via), and that a failure never leaves a
- * half-imported plan behind.
+ * "Added by import" (added_via), that a failure never leaves a
+ * half-imported plan behind, and that retrying with the same client-
+ * generated plan id never imports twice.
  */
 import { beforeAll, describe, expect, test } from "vitest";
 import { createDb, type Db } from "./harness";
@@ -20,8 +21,9 @@ async function exerciseId(name: string): Promise<string> {
   return r.rows[0].id;
 }
 
-async function importPlan(payload: unknown) {
-  return db.asUser(alice, () => db.query<{ id: string }>("select import_plan($1::jsonb) as id", [JSON.stringify(payload)]));
+async function importPlan(payload: object) {
+  const full = { plan_id: crypto.randomUUID(), ...payload };
+  return db.asUser(alice, () => db.query<{ id: string }>("select import_plan($1::jsonb) as id", [JSON.stringify(full)]));
 }
 
 describe("import_plan", () => {
@@ -76,6 +78,24 @@ describe("import_plan", () => {
     ]);
   });
 
+  test("retrying the same client-generated plan id after success is a no-op, not a duplicate import", async () => {
+    const planId = crypto.randomUUID();
+    const payload = {
+      plan_id: planId,
+      plan_name: "Retry me",
+      workouts: [{ name: "Day 1", exercises: [{ kind: "new", name: "Idempotent Curl", primary: ["biceps"], secondary: [], sets: 3, reps: 10 }] }],
+    };
+    const first = await db.asUser(alice, () => db.query<{ id: string }>("select import_plan($1::jsonb) as id", [JSON.stringify(payload)]));
+    const second = await db.asUser(alice, () => db.query<{ id: string }>("select import_plan($1::jsonb) as id", [JSON.stringify(payload)]));
+    expect(first.rows[0].id).toBe(planId);
+    expect(second.rows[0].id).toBe(planId);
+
+    const plans = await db.asUser(alice, () => db.query<{ n: number }>("select count(*)::int n from plans where id = $1", [planId]));
+    expect(plans.rows[0].n).toBe(1);
+    const exercises = await db.asUser(alice, () => db.query<{ n: number }>("select count(*)::int n from exercises where name = 'Idempotent Curl'"));
+    expect(exercises.rows[0].n).toBe(1); // not created twice on the retry
+  });
+
   test("a new exercise with no primary muscle rolls back the whole import (no half-imported plan)", async () => {
     const before = await db.asUser(alice, () => db.query<{ n: number }>("select count(*)::int n from plans"));
     const payload = {
@@ -107,7 +127,11 @@ describe("import_plan", () => {
   });
 
   test("signed-out callers cannot import", async () => {
-    const payload = { plan_name: "X", workouts: [{ name: "Day 1", exercises: [{ kind: "new", name: "Whatever", primary: ["chest"], secondary: [], sets: 3, reps: 10 }] }] };
+    const payload = {
+      plan_id: crypto.randomUUID(),
+      plan_name: "X",
+      workouts: [{ name: "Day 1", exercises: [{ kind: "new", name: "Whatever", primary: ["chest"], secondary: [], sets: 3, reps: 10 }] }],
+    };
     await db.exec("set role anon");
     try {
       await expect(db.query("select import_plan($1::jsonb)", [JSON.stringify(payload)])).rejects.toThrow();

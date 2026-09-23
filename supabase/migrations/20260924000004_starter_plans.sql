@@ -154,13 +154,18 @@ end $$;
 -- transaction. Exercises are matched by name to the caller's own library;
 -- one the caller doesn't have (e.g. deleted) is silently skipped rather than
 -- failing the whole copy.
+--
+-- Idempotent like every other create in this app: p_plan_id is generated on
+-- the device, so a retry after a lost reply (the transaction committed, but
+-- the client never heard back) returns the same plan id instead of copying
+-- the starter plan a second time.
 -- -----------------------------------------------------------------------------
-create function public.copy_starter_plan(p_starter_plan_id uuid) returns uuid
+create function public.copy_starter_plan(p_starter_plan_id uuid, p_plan_id uuid) returns uuid
 language plpgsql security invoker set search_path = '' as $$
 declare
   v_uid          uuid := auth.uid();
   v_plan_name    text;
-  v_new_plan_id  uuid;
+  v_new_plan_id  uuid := p_plan_id;
   v_workout      record;
   v_template_id  uuid;
   v_position     integer := 0;
@@ -169,13 +174,19 @@ begin
     raise exception 'Not signed in' using errcode = '28000';
   end if;
 
+  if exists (select 1 from public.plans where id = p_plan_id) then
+    if not exists (select 1 from public.plans where id = p_plan_id and user_id = v_uid) then
+      raise exception 'Plan id already in use' using errcode = '23505';
+    end if;
+    return p_plan_id; -- Already copied (retry after a lost reply) — nothing more to do.
+  end if;
+
   select name into v_plan_name from public.starter_plans where id = p_starter_plan_id;
   if v_plan_name is null then
     raise exception 'Starter plan not found' using errcode = 'P0002';
   end if;
 
-  insert into public.plans (id, user_id, name) values (gen_random_uuid(), v_uid, v_plan_name)
-  returning id into v_new_plan_id;
+  insert into public.plans (id, user_id, name) values (v_new_plan_id, v_uid, v_plan_name);
 
   for v_workout in
     select id, name from public.starter_plan_workouts
@@ -199,5 +210,5 @@ begin
 end;
 $$;
 
-revoke all on function public.copy_starter_plan(uuid) from public, anon;
-grant execute on function public.copy_starter_plan(uuid) to authenticated;
+revoke all on function public.copy_starter_plan(uuid, uuid) from public, anon;
+grant execute on function public.copy_starter_plan(uuid, uuid) to authenticated;

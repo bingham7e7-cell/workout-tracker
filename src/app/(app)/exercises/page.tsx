@@ -19,8 +19,13 @@ export default async function ExercisesPage() {
             {active.map((e) => (
               <li key={e.id}>
                 <Link href={`/exercises/${e.id}`} className="flex min-h-14 items-center justify-between rounded-xl bg-zinc-900 px-4 py-3 active:bg-zinc-800">
-                  <span className="font-medium">{e.name}</span>
-                  {e.equipment && <span className="text-sm text-zinc-500">{e.equipment}</span>}
+                  <span className="min-w-0 flex-1 truncate font-medium">{e.name}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {e.addedByImport && (
+                      <span className="rounded-full bg-amber-950 px-2 py-0.5 text-xs font-semibold text-amber-400">Added by import</span>
+                    )}
+                    {e.equipment && <span className="text-sm text-zinc-500">{e.equipment}</span>}
+                  </span>
                 </Link>
               </li>
             ))}

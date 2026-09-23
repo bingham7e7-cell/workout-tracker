@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { SetActivePlanButton } from "@/components/SetActivePlanButton";
+import { ClearActivePlanButton } from "@/components/ClearActivePlanButton";
 import { getActivePlanId, listPlans } from "@/lib/data/queries";
 
 export default async function PlansPage() {
@@ -22,6 +23,7 @@ export default async function PlansPage() {
           Manage templates
         </Link>
       </p>
+      {activePlanId && <ClearActivePlanButton />}
       {plans.length === 0 ? (
         <p className="rounded-xl bg-zinc-900 p-4 text-zinc-400">No plans yet. Create one from your templates.</p>
       ) : (

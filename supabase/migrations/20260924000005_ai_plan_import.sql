@@ -20,6 +20,7 @@ alter table public.exercises
 -- re-checks that as a last line of defence).
 --
 -- {
+--   "plan_id": "<uuid>" (generated on the device, for idempotent retries),
 --   "plan_name": "...",
 --   "workouts": [
 --     { "name": "...", "exercises": [
@@ -29,12 +30,15 @@ alter table public.exercises
 --     ] }
 --   ]
 -- }
+--
+-- Idempotent like every other create in this app: a retry with the same
+-- plan_id after a lost reply returns the same id instead of importing twice.
 -- -----------------------------------------------------------------------------
 create function public.import_plan(p_plan jsonb) returns uuid
 language plpgsql security invoker set search_path = '' as $$
 declare
   v_uid          uuid := auth.uid();
-  v_plan_id      uuid;
+  v_plan_id      uuid := (p_plan ->> 'plan_id')::uuid;
   v_workout      jsonb;
   v_template_id  uuid;
   v_ex           jsonb;
@@ -45,12 +49,21 @@ begin
   if v_uid is null then
     raise exception 'Not signed in' using errcode = '28000';
   end if;
+  if v_plan_id is null then
+    raise exception 'Plan id is required' using errcode = '22023';
+  end if;
   if jsonb_typeof(p_plan -> 'workouts') is distinct from 'array' or jsonb_array_length(p_plan -> 'workouts') = 0 then
     raise exception 'A plan needs at least one workout' using errcode = '22023';
   end if;
 
-  insert into public.plans (id, user_id, name) values (gen_random_uuid(), v_uid, btrim(p_plan ->> 'plan_name'))
-  returning id into v_plan_id;
+  if exists (select 1 from public.plans where id = v_plan_id) then
+    if not exists (select 1 from public.plans where id = v_plan_id and user_id = v_uid) then
+      raise exception 'Plan id already in use' using errcode = '23505';
+    end if;
+    return v_plan_id; -- Already imported (retry after a lost reply) — nothing more to do.
+  end if;
+
+  insert into public.plans (id, user_id, name) values (v_plan_id, v_uid, btrim(p_plan ->> 'plan_name'));
 
   for v_workout in select * from jsonb_array_elements(p_plan -> 'workouts') loop
     if jsonb_typeof(v_workout -> 'exercises') is distinct from 'array' or jsonb_array_length(v_workout -> 'exercises') = 0 then

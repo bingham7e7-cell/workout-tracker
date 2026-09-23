@@ -39,9 +39,18 @@ export type MuscleDiagramProps = {
   figureWidth?: number;
   /** Hide the tap-to-see-details panel — used for small, non-interactive previews (e.g. the home screen). */
   hideDetails?: boolean;
+  /**
+   * Single-hue strong→light scale instead of the multi-color workload
+   * gradient — for illustrating an exercise's own primary/secondary roles
+   * (where "lighter" should mean the same color, not a different one), not
+   * real recent training.
+   */
+  monochrome?: boolean;
 };
 
-export function MuscleDiagram({ workload, muscleNames, figureWidth = 150, hideDetails = false }: MuscleDiagramProps) {
+const MONOCHROME_COLOR = "#10b981"; // emerald-500, the app's accent color
+
+export function MuscleDiagram({ workload, muscleNames, figureWidth = 150, hideDetails = false, monochrome = false }: MuscleDiagramProps) {
   const [selected, setSelected] = useState<{ id: string; score: number } | null>(null);
 
   const values: MuscleMapValues = {};
@@ -58,6 +67,7 @@ export function MuscleDiagram({ workload, muscleNames, figureWidth = 150, hideDe
         values={values}
         view="BOTH"
         colorModel="LOAD"
+        {...(monochrome ? { monochromeColor: MONOCHROME_COLOR } : {})}
         labels={labels}
         figureWidth={figureWidth}
         legendMinLabel="Untrained"

@@ -95,11 +95,12 @@ describe("buildPreview: matching against the user's own library", () => {
     { id: "id-1", name: "Barbell Bench Press" },
     { id: "id-2", name: "barbell row" }, // stored lowercase in this test to prove case-insensitivity
   ];
+  const validMuscles = ["Rear delts", "Traps"];
 
   test("an exact (case-insensitive) name match is Matched", () => {
     const parsed = parseImportReply(VALID_REPLY);
     if (!parsed.ok) throw new Error("expected ok");
-    const preview = buildPreview(parsed.data, existing);
+    const preview = buildPreview(parsed.data, existing, validMuscles);
     const bench = preview.workouts[0].exercises[0];
     expect(bench.kind).toBe("matched");
     if (bench.kind === "matched") expect(bench.exerciseId).toBe("id-1");
@@ -108,13 +109,40 @@ describe("buildPreview: matching against the user's own library", () => {
   test("a name not in the library is New, keeping its given muscles", () => {
     const parsed = parseImportReply(VALID_REPLY);
     if (!parsed.ok) throw new Error("expected ok");
-    const preview = buildPreview(parsed.data, existing);
+    const preview = buildPreview(parsed.data, existing, validMuscles);
     const yRaise = preview.workouts[0].exercises[1];
     expect(yRaise.kind).toBe("new");
     if (yRaise.kind === "new") {
       expect(yRaise.primaryMuscles).toEqual(["Rear delts"]);
       expect(yRaise.secondaryMuscles).toEqual(["Traps"]);
     }
+  });
+
+  test("normalizes a valid muscle name to its canonical spelling regardless of case", () => {
+    const reply = JSON.stringify({
+      plan_name: "P",
+      workouts: [{ name: "D1", exercises: [{ name: "New Move", sets: 3, rep_range: { min: 8, max: 12 }, rpe: null, primary_muscles: ["REAR DELTS"], secondary_muscles: ["traps"] }] }],
+    });
+    const parsed = parseImportReply(reply);
+    if (!parsed.ok) throw new Error("expected ok");
+    const preview = buildPreview(parsed.data, [], validMuscles);
+    const ex = preview.workouts[0].exercises[0];
+    if (ex.kind === "new") {
+      expect(ex.primaryMuscles).toEqual(["Rear delts"]);
+      expect(ex.secondaryMuscles).toEqual(["Traps"]);
+    }
+  });
+
+  test("leaves a genuinely unrecognized muscle name as-is (validation will flag it)", () => {
+    const reply = JSON.stringify({
+      plan_name: "P",
+      workouts: [{ name: "D1", exercises: [{ name: "New Move", sets: 3, rep_range: { min: 8, max: 12 }, rpe: null, primary_muscles: ["Not A Muscle"] }] }],
+    });
+    const parsed = parseImportReply(reply);
+    if (!parsed.ok) throw new Error("expected ok");
+    const preview = buildPreview(parsed.data, [], validMuscles);
+    const ex = preview.workouts[0].exercises[0];
+    if (ex.kind === "new") expect(ex.primaryMuscles).toEqual(["Not A Muscle"]);
   });
 });
 
@@ -237,7 +265,8 @@ describe("buildImportPayload", () => {
       ["rear delts", "shoulders_rear"],
       ["traps", "trapezius"],
     ]);
-    expect(buildImportPayload(preview, muscleNameToId)).toEqual({
+    expect(buildImportPayload(preview, muscleNameToId, "plan-id-1")).toEqual({
+      plan_id: "plan-id-1",
       plan_name: "My Plan",
       workouts: [
         {
@@ -264,7 +293,7 @@ describe("buildImportPayload", () => {
         },
       ],
     };
-    const result = buildImportPayload(preview, new Map());
+    const result = buildImportPayload(preview, new Map(), "plan-id-2");
     expect(result.workouts[0].exercises[0]).toMatchObject({ primary: [], secondary: [] });
   });
 });

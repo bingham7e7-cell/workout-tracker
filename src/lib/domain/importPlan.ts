@@ -80,8 +80,25 @@ export type PreviewExercise =
 export type PreviewWorkout = { key: string; name: string; exercises: PreviewExercise[] };
 export type PreviewPlan = { planName: string; workouts: PreviewWorkout[] };
 
+/**
+ * The AI doesn't always spell a muscle group exactly as given (e.g. "rear
+ * delts" instead of "Rear delts") — matched case-insensitively to the
+ * canonical spelling so the preview's muscle chips light up correctly and a
+ * correctly-meant name doesn't get flagged as invalid. A name that still
+ * doesn't match any valid muscle is left as-is (validateImportPreview flags
+ * it, and the preview UI lets the user remove it).
+ */
+function normalizeMuscleNames(names: string[], validMuscleNames: string[]): string[] {
+  const canonicalByLower = new Map(validMuscleNames.map((n) => [n.toLowerCase(), n]));
+  return names.map((n) => canonicalByLower.get(n.trim().toLowerCase()) ?? n.trim());
+}
+
 /** Resolves each exercise against the user's own library by exact, case-insensitive name match. */
-export function buildPreview(data: RawImportPlan, existingExercises: { id: string; name: string }[]): PreviewPlan {
+export function buildPreview(
+  data: RawImportPlan,
+  existingExercises: { id: string; name: string }[],
+  validMuscleNames: string[],
+): PreviewPlan {
   const byName = new Map(existingExercises.map((e) => [e.name.trim().toLowerCase(), e.id]));
   return {
     planName: data.plan_name,
@@ -100,7 +117,12 @@ export function buildPreview(data: RawImportPlan, existingExercises: { id: strin
         const existingId = byName.get(e.name.trim().toLowerCase());
         return existingId !== undefined
           ? { ...base, kind: "matched" as const, exerciseId: existingId }
-          : { ...base, kind: "new" as const, primaryMuscles: e.primary_muscles ?? [], secondaryMuscles: e.secondary_muscles ?? [] };
+          : {
+              ...base,
+              kind: "new" as const,
+              primaryMuscles: normalizeMuscleNames(e.primary_muscles ?? [], validMuscleNames),
+              secondaryMuscles: normalizeMuscleNames(e.secondary_muscles ?? [], validMuscleNames),
+            };
       }),
     })),
   };
@@ -154,6 +176,7 @@ export function repTarget(min: number, max: number): number {
 }
 
 export type ImportPayload = {
+  plan_id: string;
   plan_name: string;
   workouts: {
     name: string;
@@ -166,16 +189,18 @@ export type ImportPayload = {
 
 /**
  * Builds the payload for the import_plan RPC from a (validated) preview.
- * `muscleNameToId` maps each valid muscle group's display name (lowercased),
- * as shown in the preview UI and the AI's reply, to its internal id (e.g.
- * "rear delts" -> "shoulders_rear") — the only thing exercise_muscles
- * actually stores. Validation already guarantees every New exercise's
- * muscles are in that map, so a name missing from it here is dropped rather
- * than failing the save.
+ * `planId` is generated on the device (like every other create in this app)
+ * so a retry after a lost reply is idempotent. `muscleNameToId` maps each
+ * valid muscle group's display name (lowercased), as shown in the preview UI
+ * and the AI's reply, to its internal id (e.g. "rear delts" ->
+ * "shoulders_rear") — the only thing exercise_muscles actually stores.
+ * Validation already guarantees every New exercise's muscles are in that
+ * map, so a name missing from it here is dropped rather than failing the save.
  */
-export function buildImportPayload(preview: PreviewPlan, muscleNameToId: Map<string, string>): ImportPayload {
+export function buildImportPayload(preview: PreviewPlan, muscleNameToId: Map<string, string>, planId: string): ImportPayload {
   const toIds = (names: string[]) => names.map((n) => muscleNameToId.get(n.toLowerCase())).filter((id) => id !== undefined);
   return {
+    plan_id: planId,
     plan_name: preview.planName,
     workouts: preview.workouts.map((w) => ({
       name: w.name,
