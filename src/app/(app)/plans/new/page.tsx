@@ -26,6 +26,12 @@ export default async function NewPlanChooserPage() {
       </section>
 
       <Link
+        href="/plans/new/ai"
+        className="mb-3 flex h-14 w-full items-center justify-center rounded-xl border border-dashed border-zinc-700 font-medium text-emerald-400"
+      >
+        Build a plan with AI
+      </Link>
+      <Link
         href="/plans/new/build"
         className="flex h-14 w-full items-center justify-center rounded-xl border border-dashed border-zinc-700 font-medium text-emerald-400"
       >

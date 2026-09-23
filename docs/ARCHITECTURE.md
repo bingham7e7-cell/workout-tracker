@@ -139,6 +139,7 @@ still stored in UTC), `active_plan_id`/`active_plan_position` (see `plans` below
 `created_at`. Created automatically on first sign-in by a database trigger.
 
 **`exercises`** — the library: `id`, `user_id`, `name`, `equipment` (optional),
+`added_via` (`null` normally, `'import'` for an exercise the AI plan importer created),
 `archived_at` (null = active), timestamps. Unique on `(user_id, lower(name))`.
 The ~50 default exercises are **copied into your library** on first sign-in, so you can
 rename them, fix their muscles, or add your own — everything is uniformly "yours".
@@ -172,6 +173,18 @@ Body, Upper/Lower, Push/Pull/Legs) built from this app's own exercise library. `
 copies one into the caller's own `plans`/`templates`/`template_exercises` in one transaction,
 matching `starter_plan_exercises.exercise_name` to the caller's own exercise by name (an
 exercise the user doesn't have, e.g. deleted, is silently skipped rather than failing the copy).
+
+### AI plan import
+No AI runs inside the app. `src/lib/domain/importPlan.ts` builds a clipboard prompt from the
+user's own exercise list + the valid muscle groups, extracts/validates the JSON the user pastes
+back (tolerating extra prose around it), matches each exercise to the user's library by exact
+case-insensitive name, and lets the user fix any problem (a "New" exercise needs a name, at
+least one primary muscle, and valid muscle names) before saving. `import_plan(payload)` creates
+the new exercises (tagged `added_via = 'import'`), templates, and the plan together in one
+transaction. The AI's suggested rep *range* and RPE are shown in the preview for context, but
+`template_exercises` only stores a single `target_reps` (like every other template in the app),
+so the range collapses to its rounded midpoint at save time — a deliberate simplification rather
+than adding a rep-range/RPE column used nowhere else.
 
 **`workouts`** — completed workouts only. `id` (client-generated UUID), `user_id`,
 `template_id` (nullable, `ON DELETE SET NULL`), `name` (snapshot, e.g. "Push Day"),
