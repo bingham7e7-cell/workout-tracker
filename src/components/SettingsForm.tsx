@@ -6,6 +6,7 @@ import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { clearOfflineExercises } from "@/lib/client/exerciseLibraryCache";
 import { clearPreviousSetsCache } from "@/lib/client/previousSetsCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
+import { ExportDataButtons } from "@/components/ExportDataButtons";
 import type { WeightUnit } from "@/lib/domain/units";
 
 export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; email: string }) {
@@ -68,6 +69,8 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
         </div>
         {error && <p className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">{error}</p>}
       </section>
+
+      <ExportDataButtons />
 
       <section>
         <h2 className="mb-1 font-semibold">Account</h2>
