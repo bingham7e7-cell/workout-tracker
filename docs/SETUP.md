@@ -49,7 +49,46 @@ This creates all the tables, the security rules, and the default exercise librar
 > through, nothing from that file is saved (Postgres rolls the whole file back). Tell me the
 > error message and we'll fix it.
 > 
-New Step 3.5: Configure Resend SMTP (Do this before Step 4)A. Add and Verify Your Domain in Resend Log into your Resend account.In the left sidebar, click Domains, then click Add Domain.Type in your parked domain from Namecheap (e.g., yourdomain.com) and click Add.Resend will display a table containing TXT and MX records. Keep this tab open. B. Update Your Namecheap DNS Settings Log into your Namecheap Dashboard in a new tab. Find your chosen domain name in your list and click Manage. Click the Advanced DNS tab at the top of the domain management page. Locate the Host Records section. For each row provided by Resend:Click Add New Record.Select the Type (TXT or MX) to match Resend's table.Set the Host (use @ if Resend specifies your bare domain, or copy the subdomain prefix like bounces).Paste the long string into the Value / Target field.Leave the TTL on Automatic / 15 min and click the green checkmark to save. Head back to your Resend dashboard and click Verify. (It will switch from "Pending" to a green "Verified" badge once Namecheap updates). C. Generate Your Resend API Key In the Resend sidebar, click API Keys, then click Create API Key.Name: Supabase IntegrationPermission: Full AccessClick Add. Copy the generated key immediately (it starts with re_...) and paste it into your temporary notes app. D. Connect Resend to Supabase Open your online Supabase Dashboard. Go to Project Settings (the gear icon at the bottom of the left sidebar) \[\rightarrow \] Auth. Scroll down until you find the SMTP Settings section. Toggle the switch to Enable Custom SMTP. Fill out the fields with these exact credentials:Sender Email: auth@yourdomain.com (Replace with your actual Namecheap domain)Sender Name: Workout TrackerSMTP Host: ://resend.comSMTP Port: 465SMTP User: resend (Type this exactly as literal text)SMTP Password: (Paste the re_... API key you copied from Resend) Click Save at the bottom of the page.
+## 3.5. Configure Resend SMTP (Do this before Step 4)
+
+This unlocks the ability to customize your email templates on the Supabase Free Tier.
+
+### A. Add your domain to Resend
+1. Log into your **Resend** account.
+2. In the left sidebar, click **Domains**, then click **Add Domain**.
+3. Type in your parked domain from Namecheap (e.g., `yourdomain.com`) and click **Add**.
+4. Resend will display a table containing **TXT** and **MX** records. Keep this tab open.
+
+### B. Update your Namecheap DNS settings
+1. Log into your **Namecheap Dashboard** in a new browser tab.
+2. Find your chosen domain name in your list and click **Manage**.
+3. Click the **Advanced DNS** tab at the top of the domain management page.
+4. Locate the **Host Records** section. For each row provided by Resend:
+   - Click **Add New Record**.
+   - Select the **Type** (TXT or MX) to match Resend's table.
+   - Set the **Host** (use `@` if Resend specifies your bare domain, or copy the subdomain prefix like `bounces`).
+   - Paste the long text string into the **Value** / **Target** field.
+   - Leave the TTL on **Automatic** / **15 min** and click the green checkmark to save.
+5. Head back to your Resend dashboard and click **Verify**. (It will switch from "Pending" to a green "Verified" badge once Namecheap updates).
+
+### C. Generate your Resend API Key
+1. In the Resend sidebar, click **API Keys**, then click **Create API Key**.
+2. Set **Name** to `Supabase Integration` and **Permission** to `Full Access`.
+3. Click **Add**. **Copy the generated key immediately** (it starts with `re_...`) and paste it into your temporary notes app.
+
+### D. Connect Resend to Supabase
+1. Open your online **Supabase Dashboard**.
+2. Go to **Project Settings** (the gear icon at the bottom of the left sidebar) → **Auth**.
+3. Scroll down until you find the **SMTP Settings** section.
+4. Toggle the switch to **Enable Custom SMTP**.
+5. Fill out the fields with these exact credentials:
+   - **Sender Email:** `auth@yourdomain.com` *(Replace with your actual Namecheap domain)*
+   - **Sender Name:** `Workout Tracker`
+   - **SMTP Host:** `://resend.com`
+   - **SMTP Port:** `465`
+   - **SMTP User:** `resend` *(Type this exactly as literal text)*
+   - **SMTP Password:** *(Paste the `re_...` API key you copied from Resend)*
+6. Click **Save** at the bottom of the page.
 
 ## 4. Set up sign-in emails
 
