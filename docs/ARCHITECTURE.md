@@ -166,6 +166,13 @@ advances the position, looping back to 0 after the last one; finishing any other
 `profiles` rejects pointing `active_plan_id` at another user's plan and resets the position to
 0 whenever the active plan changes.
 
+**`starter_plans` / `starter_plan_workouts` / `starter_plan_exercises`** — built-in, read-only,
+shared by every user (RLS: select-only, no `user_id`). Three original, generic routines (Full
+Body, Upper/Lower, Push/Pull/Legs) built from this app's own exercise library. `copy_starter_plan(id)`
+copies one into the caller's own `plans`/`templates`/`template_exercises` in one transaction,
+matching `starter_plan_exercises.exercise_name` to the caller's own exercise by name (an
+exercise the user doesn't have, e.g. deleted, is silently skipped rather than failing the copy).
+
 **`workouts`** — completed workouts only. `id` (client-generated UUID), `user_id`,
 `template_id` (nullable, `ON DELETE SET NULL`), `name` (snapshot, e.g. "Push Day"),
 `started_at`, `finished_at`, `notes`, timestamps. Check: `finished_at >= started_at`.

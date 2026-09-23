@@ -391,6 +391,24 @@ export async function getExerciseMuscles(exerciseId: string): Promise<ExerciseMu
   }));
 }
 
+export type StarterPlanSummary = { id: string; name: string; workoutNames: string[] };
+
+type StarterPlanRow = { id: string; name: string; starter_plan_workouts: { position: number; name: string }[] };
+
+const STARTER_PLAN_SELECT = "id, name, starter_plan_workouts(position, name)";
+
+/** Built-in, read-only plans shared by every user — shown as "Start from a template" when building a plan. */
+export async function listStarterPlans(): Promise<StarterPlanSummary[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("starter_plans").select(STARTER_PLAN_SELECT).order("sort_order");
+  if (error) throw error;
+  return (data as unknown as StarterPlanRow[]).map((p) => ({
+    id: p.id,
+    name: p.name,
+    workoutNames: [...p.starter_plan_workouts].sort((a, b) => a.position - b.position).map((w) => w.name),
+  }));
+}
+
 export type MuscleGroup = { id: string; name: string };
 
 export async function listMuscleGroups(): Promise<MuscleGroup[]> {
