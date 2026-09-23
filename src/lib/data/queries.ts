@@ -7,6 +7,7 @@ import "server-only";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
+import type { MuscleRole, WorkloadSet } from "@/lib/domain/workload";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
   const supabase = await getSupabaseServer();
@@ -269,4 +270,70 @@ export async function listExercisePRs(): Promise<ExercisePRSummary[]> {
     .map(([exerciseId, { name, rows }]) => ({ exerciseId, name, records: personalRecords(toSessions(rows)) }))
     .filter((e) => e.records.heaviestWeight !== null)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type MuscleGroup = { id: string; name: string };
+
+export async function listMuscleGroups(): Promise<MuscleGroup[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.from("muscle_groups").select("id, name").order("sort_order");
+  if (error) throw error;
+  return data;
+}
+
+// Contributions decay by half every 48h (see lib/domain/workload.ts); by 21 days
+// out a set's contribution is under 0.1% of its starting value, so this window
+// captures everything that could meaningfully affect the current workload.
+const WORKLOAD_WINDOW_DAYS = 21;
+
+type WorkloadWorkoutRow = {
+  finished_at: string;
+  workout_exercises: { exercise_id: string; workout_sets: { weight_kg: number | string; reps: number; rpe: number | string | null; is_warmup: boolean }[] }[];
+};
+
+/** Every working set from the last 3 weeks, with each set's exercise mapped to the muscles it trains. */
+export async function getRecentSetsForWorkload(): Promise<WorkloadSet[]> {
+  const supabase = await getSupabaseServer();
+  const cutoff = new Date(Date.now() - WORKLOAD_WINDOW_DAYS * 86_400_000).toISOString();
+
+  const { data: workouts, error } = await supabase
+    .from("workouts")
+    .select("finished_at, workout_exercises(exercise_id, workout_sets(weight_kg, reps, rpe, is_warmup))")
+    .gte("finished_at", cutoff);
+  if (error) throw error;
+
+  const rows = workouts as unknown as WorkloadWorkoutRow[];
+  const exerciseIds = [...new Set(rows.flatMap((w) => w.workout_exercises.map((we) => we.exercise_id)))];
+  if (exerciseIds.length === 0) return [];
+
+  const { data: muscleRows, error: muscleError } = await supabase
+    .from("exercise_muscles")
+    .select("exercise_id, muscle_group_id, role")
+    .in("exercise_id", exerciseIds);
+  if (muscleError) throw muscleError;
+
+  const musclesByExercise = new Map<string, { muscleGroupId: string; role: MuscleRole }[]>();
+  for (const row of muscleRows as { exercise_id: string; muscle_group_id: string; role: string }[]) {
+    const list = musclesByExercise.get(row.exercise_id) ?? [];
+    list.push({ muscleGroupId: row.muscle_group_id, role: row.role as MuscleRole });
+    musclesByExercise.set(row.exercise_id, list);
+  }
+
+  const sets: WorkloadSet[] = [];
+  for (const w of rows) {
+    for (const we of w.workout_exercises) {
+      const muscles = musclesByExercise.get(we.exercise_id) ?? [];
+      for (const s of we.workout_sets) {
+        sets.push({
+          weightKg: Number(s.weight_kg),
+          reps: s.reps,
+          rpe: s.rpe == null ? null : Number(s.rpe),
+          isWarmup: s.is_warmup,
+          finishedAt: w.finished_at,
+          muscles,
+        });
+      }
+    }
+  }
+  return sets;
 }

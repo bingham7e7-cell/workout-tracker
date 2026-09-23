@@ -16,6 +16,13 @@ export default async function AnalyticsPage() {
           </Link>
         }
       />
+      <Link
+        href="/analytics/muscles"
+        className="mb-5 flex h-14 items-center justify-between rounded-xl bg-zinc-900 px-4 font-semibold text-emerald-400 active:bg-zinc-800"
+      >
+        Muscle workload
+        <span>→</span>
+      </Link>
       <p className="-mt-3 mb-5 text-zinc-400">
         Your best set (by estimated 1RM) for every exercise you&apos;ve logged. Warm-ups don&apos;t count.
       </p>
