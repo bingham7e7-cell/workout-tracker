@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { MuscleMap } from "@musclemap/react";
 import type { MuscleGroup, MuscleMapValues } from "@musclemap/core";
 import { workloadBucket, type MuscleWorkload } from "@/lib/domain/workload";
@@ -86,6 +87,12 @@ export function MuscleDiagram({ workload, muscleNames, figureWidth = 150, hideDe
             <p className="text-sm text-zinc-400">Tap a muscle to see its recent workload.</p>
           )}
         </div>
+      )}
+
+      {!hideDetails && (
+        <Link href="/analytics/muscles/how-it-works" className="mt-2 block text-center text-sm text-emerald-400 underline">
+          How the muscle map works
+        </Link>
       )}
     </div>
   );

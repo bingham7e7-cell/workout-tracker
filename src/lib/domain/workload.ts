@@ -25,16 +25,23 @@ export type WorkloadSet = {
   muscles: { muscleGroupId: string; role: MuscleRole }[];
 };
 
-const RECENCY_HALF_LIFE_HOURS = 48;
-const DEFAULT_EFFORT = 0.8;
+// Exported (not just used locally) so lib/domain/workloadExplain.ts can build
+// its plain-language explanation from these exact numbers — the explanation
+// and the real calculation can never drift apart.
+export const RECENCY_HALF_LIFE_HOURS = 48;
+export const DEFAULT_EFFORT = 0.8;
+export const MIN_RPE_EFFORT = 0.5;
+export const MAX_RPE_EFFORT = 1.0;
+export const PRIMARY_ROLE_WEIGHT = 1;
+export const SECONDARY_ROLE_WEIGHT = 0.5;
 
 function effortOf(rpe: number | null): number {
   if (rpe === null) return DEFAULT_EFFORT;
-  return Math.min(1, Math.max(0.5, rpe / 10));
+  return Math.min(MAX_RPE_EFFORT, Math.max(MIN_RPE_EFFORT, rpe / 10));
 }
 
-function roleWeight(role: MuscleRole): number {
-  return role === "primary" ? 1 : 0.5;
+export function roleWeight(role: MuscleRole): number {
+  return role === "primary" ? PRIMARY_ROLE_WEIGHT : SECONDARY_ROLE_WEIGHT;
 }
 
 /** 0.5 ^ (hours / 48) — 1.0 right at the finish, halving every 48 hours. */
@@ -59,6 +66,19 @@ export function muscleWorkload(sets: WorkloadSet[], now: Date = new Date()): Mus
       workload[m.muscleGroupId] = (workload[m.muscleGroupId] ?? 0) + contribution;
     }
   }
+  return workload;
+}
+
+/**
+ * Scores primary muscles into the "very high" bucket and secondary muscles
+ * into "high" — for *illustrating* an exercise's own muscle mapping on the
+ * body diagram (not real recent training), so primary reads as the
+ * strongest color and secondary as a clearly lighter one.
+ */
+export function roleWorkload(primaryIds: string[], secondaryIds: string[]): MuscleWorkload {
+  const workload: MuscleWorkload = {};
+  for (const id of primaryIds) workload[id] = 10;
+  for (const id of secondaryIds) if (!(id in workload)) workload[id] = 5;
   return workload;
 }
 

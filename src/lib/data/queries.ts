@@ -374,6 +374,23 @@ export async function listRecentWorkoutDates(days = 10): Promise<string[]> {
   return (data as { finished_at: string }[]).map((w) => w.finished_at);
 }
 
+export type ExerciseMuscle = { muscleGroupId: string; name: string; role: MuscleRole };
+
+/** The muscles an exercise trains, with names, for the exercise detail screen's diagram + breakdown. */
+export async function getExerciseMuscles(exerciseId: string): Promise<ExerciseMuscle[]> {
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase
+    .from("exercise_muscles")
+    .select("muscle_group_id, role, muscle_groups(name)")
+    .eq("exercise_id", exerciseId);
+  if (error) throw error;
+  return (data as unknown as { muscle_group_id: string; role: string; muscle_groups: { name: string } | null }[]).map((r) => ({
+    muscleGroupId: r.muscle_group_id,
+    name: r.muscle_groups?.name ?? r.muscle_group_id,
+    role: r.role as MuscleRole,
+  }));
+}
+
 export type MuscleGroup = { id: string; name: string };
 
 export async function listMuscleGroups(): Promise<MuscleGroup[]> {
