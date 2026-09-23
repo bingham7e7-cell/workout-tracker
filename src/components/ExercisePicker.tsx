@@ -11,8 +11,27 @@ type Muscle = { id: string; name: string };
 
 const EQUIPMENT = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "EZ Bar", "Kettlebell", "Other"];
 
-// Cached for the session so reopening the picker is instant.
+// Kept on the device so the picker still works with no signal, after at least one
+// successful load. Cached for the session so reopening the picker is instant.
+const OFFLINE_KEY = "workout-tracker.exercise-library.v1";
 let exerciseCache: Exercise[] | null = null;
+
+function readOfflineExercises(): Exercise[] | null {
+  try {
+    const raw = localStorage.getItem(OFFLINE_KEY);
+    return raw ? (JSON.parse(raw) as Exercise[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOfflineExercises(exercises: Exercise[]) {
+  try {
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify(exercises));
+  } catch {
+    // Not critical: the in-memory cache still works for this session.
+  }
+}
 
 async function fetchExercises(): Promise<Exercise[]> {
   const { data, error } = await getSupabaseBrowser()
@@ -21,14 +40,23 @@ async function fetchExercises(): Promise<Exercise[]> {
     .is("archived_at", null)
     .order("name")
     .abortSignal(timeoutSignal());
-  if (error) throw error;
+  if (error) {
+    // Offline or the request failed: fall back to what was cached last time it worked.
+    const offline = readOfflineExercises();
+    if (offline) {
+      exerciseCache = offline;
+      return offline;
+    }
+    throw error;
+  }
   exerciseCache = data;
+  writeOfflineExercises(data);
   return data;
 }
 
 /** Full-screen, searchable exercise list with "create new exercise". */
 export function ExercisePicker({ onPick, onClose }: { onPick: (e: PickedExercise) => void; onClose: () => void }) {
-  const [exercises, setExercises] = useState<Exercise[] | null>(exerciseCache);
+  const [exercises, setExercises] = useState<Exercise[] | null>(() => exerciseCache ?? readOfflineExercises());
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -43,8 +71,10 @@ export function ExercisePicker({ onPick, onClose }: { onPick: (e: PickedExercise
     );
   }
 
+  // Always refresh in the background (the offline copy can be stale), but the
+  // offline/in-memory copy above already lets the picker render instantly.
   useEffect(() => {
-    if (!exerciseCache) load();
+    load();
   }, []);
 
   const filtered = useMemo(() => {

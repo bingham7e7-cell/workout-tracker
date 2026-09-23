@@ -38,6 +38,14 @@ export type WorkoutDraft = {
   unit: WeightUnit;
   startedAt: string;
   exercises: DraftExercise[];
+  /**
+   * Set the moment "Finish" is tapped, before the save even reaches the network.
+   * A draft with this set is done being logged and is just waiting to reach the
+   * database — offline or on a flaky connection, it stays on the phone with this
+   * flag until a save succeeds, so closing and reopening the app doesn't lose the
+   * "already finished, just not saved yet" state.
+   */
+  finishedAt?: string;
 };
 
 export type TemplateExerciseSeed = {
@@ -84,6 +92,19 @@ function mapExercise(draft: WorkoutDraft, exKey: string, fn: (ex: DraftExercise)
 
 export function renameDraft(draft: WorkoutDraft, name: string): WorkoutDraft {
   return { ...draft, name };
+}
+
+/** Marks the draft as finished (waiting to save), fixing the finish time so retries don't drift it. */
+export function markFinishing(draft: WorkoutDraft, finishedAt: string): WorkoutDraft {
+  return { ...draft, finishedAt };
+}
+
+/** Returns to editing after a finish attempt (e.g. so the owner can fix something before retrying). */
+export function cancelFinishing(draft: WorkoutDraft): WorkoutDraft {
+  if (!draft.finishedAt) return draft;
+  const next = { ...draft };
+  delete next.finishedAt;
+  return next;
 }
 
 export function addExercise(draft: WorkoutDraft, exercise: { exerciseId: string; name: string }): WorkoutDraft {

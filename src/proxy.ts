@@ -39,6 +39,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static files and images.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)"],
+  // Skip static files, images, and the service worker (it must be fetchable —
+  // and stay at the fixed /sw.js URL, unredirected — whether signed in or not).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)"],
 };

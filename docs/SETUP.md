@@ -172,14 +172,19 @@ you can turn it off there at any time — existing accounts keep working either 
 
 ## 10. Add to your iPhone Home Screen
 
-1. In Safari, with the app open, tap the **Share** button (a square with an arrow).
-2. Scroll down, tap **Add to Home Screen**, then **Add**.
+1. Open the app in Safari **at least once while online** first — this lets it cache
+   what it needs to open later with no signal.
+2. Tap the **Share** button (a square with an arrow), scroll down, tap **Add to Home
+   Screen**, then **Add**.
 3. Open it from the Home Screen. The first time, you'll need to sign in again: type the
    **code** from the email. The link would open Safari instead of the app.
 
-> Stage 3 adds the proper app icon and the offline features. Until then, the Home Screen app
-> needs an internet connection to open, but a workout in progress is already kept on the phone
-> if the page refreshes or the signal drops.
+Once installed, a workout can be started, logged, and finished with no signal (gym
+basements are the whole point of this): weight/rep entry, the exercise picker, and
+"last time" hints all work offline after that first online visit, and a finished
+workout that couldn't reach the database yet is kept on the phone and saved
+automatically as soon as you're back online. Only history, analytics and account
+changes need a connection.
 
 ---
 

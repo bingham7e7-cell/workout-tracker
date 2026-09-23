@@ -2,9 +2,11 @@ import { describe, expect, test } from "vitest";
 import {
   addExercise,
   addSet,
+  cancelFinishing,
   countSets,
   createDraft,
   editDraftFromWorkout,
+  markFinishing,
   moveExercise,
   parseNumber,
   removeExercise,
@@ -213,6 +215,34 @@ describe("previous-session values", () => {
   test("summarizePreviousSets formats weight, warm-up and RPE", () => {
     expect(summarizePreviousSets(PREVIOUS, "lb")).toBe("135×5 (W), 225×5 @8.5");
     expect(summarizePreviousSets(PREVIOUS, "kg")).toBe("61.24×5 (W), 102.06×5 @8.5");
+  });
+});
+
+describe("finishing offline (Stage 3)", () => {
+  test("markFinishing/cancelFinishing toggle a fixed finish time on the draft", () => {
+    const original = templateDraft();
+    let d = markFinishing(original, "2026-09-01T11:00:00.000Z");
+    expect(d.finishedAt).toBe("2026-09-01T11:00:00.000Z");
+    // Everything else about the draft (id, exercises, sets) is untouched.
+    expect(d.id).toBe(original.id);
+    expect(d.exercises).toEqual(original.exercises);
+    d = cancelFinishing(d);
+    expect(d.finishedAt).toBeUndefined();
+    expect("finishedAt" in d).toBe(false);
+  });
+
+  test("a retry after marking finishing reuses the fixed finish time, not the retry time", () => {
+    let d = templateDraft();
+    const ex = d.exercises[0];
+    d = updateSet(d, ex.key, ex.sets[0].key, { weight: "100" });
+    d = toggleSetDone(d, ex.key, ex.sets[0].key).draft;
+    d = markFinishing(d, "2026-09-01T11:00:00.000Z");
+
+    const laterRetryTime = new Date("2026-09-01T11:05:00.000Z");
+    const r = toSavePayload(d, new Date(d.finishedAt!));
+    if ("error" in r) throw new Error(r.error);
+    expect(r.payload.finished_at).toBe("2026-09-01T11:00:00.000Z");
+    expect(r.payload.finished_at).not.toBe(laterRetryTime.toISOString());
   });
 });
 

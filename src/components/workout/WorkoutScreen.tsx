@@ -8,7 +8,9 @@ import { SetRow } from "@/components/workout/SetRow";
 import {
   addExercise,
   addSet,
+  cancelFinishing,
   countSets,
+  markFinishing,
   moveExercise,
   removeExercise,
   removeSet,
@@ -21,7 +23,9 @@ import {
   type PreviousSet,
   type WorkoutDraft,
 } from "@/lib/domain/draft";
+import type { WorkoutPayload } from "@/lib/domain/schemas";
 import { clearDraft, loadDraft, saveDraft, useActiveDraft } from "@/lib/client/draftStorage";
+import { getCachedPreviousSets, setCachedPreviousSets } from "@/lib/client/previousSetsCache";
 import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { formatTime } from "@/lib/format";
@@ -37,6 +41,7 @@ export function WorkoutScreen() {
   const [storageWarning, setStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   // A ref (not state) so a lightning-fast double tap can't slip through.
   const savingRef = useRef(false);
   // Exercise ids we've already asked the server for "last time" values (successfully, or exhausted retries).
@@ -61,13 +66,31 @@ export function WorkoutScreen() {
     if (missing.length === 0) return;
     missing.forEach((id) => fetchedPreviousRef.current.add(id));
 
+    // Instant, offline-friendly: fill in whatever was cached from the last successful
+    // sync before even trying the network, so "Last time" shows up with no signal too.
+    const seed = loadDraft();
+    if (seed) {
+      let next = seed;
+      let changed = false;
+      for (const ex of seed.exercises) {
+        if (!missing.includes(ex.exerciseId)) continue;
+        const cached = getCachedPreviousSets(ex.exerciseId);
+        if (cached !== undefined) {
+          next = setPreviousSets(next, ex.key, cached);
+          changed = true;
+        }
+      }
+      if (changed) saveDraft(next);
+    }
+
     getSupabaseBrowser()
       .rpc("previous_exercise_sets", { p_exercise_ids: missing })
       .abortSignal(timeoutSignal())
       .then(({ data, error }) => {
         if (error || !data) {
-          // Not critical: the workout still works without it. Retry a few times (a
-          // gym has flaky signal) before giving up quietly for the rest of the session.
+          // Not critical: the workout still works without it (the cache filled above
+          // already covers most offline cases). Retry a few times (a gym has flaky
+          // signal) before giving up quietly for the rest of the session.
           const stillRetrying = missing.filter((id) => {
             const attempts = (previousAttemptsRef.current.get(id) ?? 0) + 1;
             previousAttemptsRef.current.set(id, attempts);
@@ -98,7 +121,9 @@ export function WorkoutScreen() {
         let next = current;
         for (const ex of current.exercises) {
           if (!missing.includes(ex.exerciseId)) continue;
-          next = setPreviousSets(next, ex.key, byExercise.get(ex.exerciseId) ?? null);
+          const sets = byExercise.get(ex.exerciseId) ?? null;
+          next = setPreviousSets(next, ex.key, sets);
+          setCachedPreviousSets(ex.exerciseId, sets);
         }
         saveDraft(next);
       });
@@ -126,7 +151,42 @@ export function WorkoutScreen() {
     if (!saveDraft(result.draft)) setStorageWarning(true);
   }
 
-  async function finish() {
+  /** Sends a finished workout to the database. Safe to call again after a failure — same idempotent RPC. */
+  async function attemptSave(payload: WorkoutPayload) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseBrowser();
+      const { data, error } = await supabase
+        .rpc("save_workout", { p_workout: payload })
+        .abortSignal(timeoutSignal(30_000));
+      if (error) throw error;
+      if ((data as { duplicate?: boolean } | null)?.duplicate) {
+        // An earlier attempt already reached the database (its reply was lost, or this is a retry).
+        // Apply this latest version on top, so edits made since then aren't dropped.
+        const { error: updateError } = await supabase
+          .rpc("update_workout", { p_workout: payload })
+          .abortSignal(timeoutSignal(30_000));
+        if (updateError) throw updateError;
+      }
+      // Only now — after the database confirmed — remove it from the phone.
+      setSaved(true);
+      clearDraft();
+      router.replace(`/history/${payload.id}`);
+      router.refresh();
+    } catch (e) {
+      setError(`${describeError(e)} Your workout is still safe on this phone${navigator.onLine ? "" : " — it'll save automatically once you're back online"}.`);
+      setSaveFailed(true);
+      setSignedOut(isSignedOutError(e));
+      savingRef.current = false;
+      setSaving(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function finish() {
     if (savingRef.current) return;
     const current = loadDraft();
     if (!current) return;
@@ -144,44 +204,68 @@ export function WorkoutScreen() {
         : "Finish and save this workout?";
     if (!window.confirm(message)) return;
 
-    const built = toSavePayload(current);
+    const finishedAt = new Date();
+    const built = toSavePayload(current, finishedAt);
     if ("error" in built) {
       setError(built.error);
       return;
     }
 
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      const supabase = getSupabaseBrowser();
-      const { data, error } = await supabase
-        .rpc("save_workout", { p_workout: built.payload })
-        .abortSignal(timeoutSignal(30_000));
-      if (error) throw error;
-      if ((data as { duplicate?: boolean } | null)?.duplicate) {
-        // An earlier attempt already reached the database (its reply was lost).
-        // Apply this latest version on top, so edits made since then aren't dropped.
-        const { error: updateError } = await supabase
-          .rpc("update_workout", { p_workout: built.payload })
-          .abortSignal(timeoutSignal(30_000));
-        if (updateError) throw updateError;
-      }
-      // Only now — after the database confirmed — remove it from the phone.
-      setSaved(true);
-      clearDraft();
-      router.replace(`/history/${built.payload.id}`);
-      router.refresh();
-    } catch (e) {
-      setError(`${describeError(e)} Your workout is still safe on this phone.`);
-      setSaveFailed(true);
-      setSignedOut(isSignedOutError(e));
-      savingRef.current = false;
-      setSaving(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    // Persisted before the network call even starts: closing the app now still
+    // shows this workout as finished-but-not-saved, not as still in progress.
+    if (!saveDraft(markFinishing(current, finishedAt.toISOString()))) setStorageWarning(true);
+    attemptSave(built.payload);
   }
 
+  /** Retries saving a workout that already finished but hasn't reached the database yet. */
+  function retryFinishing() {
+    const current = loadDraft();
+    if (!current?.finishedAt || savingRef.current) return;
+    const built = toSavePayload(current, new Date(current.finishedAt));
+    if ("error" in built) return; // Already validated when it was first marked finishing.
+    attemptSave(built.payload);
+  }
+
+  function keepEditing() {
+    const current = loadDraft();
+    if (!current || savingRef.current) return;
+    saveDraft(cancelFinishing(current));
+    setError(null);
+    setSaveFailed(false);
+  }
+
+  // A finished-but-unsaved workout retries automatically: once on load (the app may
+  // have been closed mid-retry), again whenever the phone regains a connection, and
+  // periodically in between in case the 'online' event doesn't fire (it isn't fully
+  // reliable on iOS).
+  useEffect(() => {
+    // Deferred (not called synchronously in the effect body): this may finish the
+    // workout via setState, which React wants scheduled after the initial commit.
+    const initial = setTimeout(retryFinishing, 0);
+    window.addEventListener("online", retryFinishing);
+    const interval = setInterval(retryFinishing, 20_000);
+    return () => {
+      clearTimeout(initial);
+      window.removeEventListener("online", retryFinishing);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reflects real connectivity in the "not saved yet" banner below.
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
   function discard() {
+    if (savingRef.current) return; // A save (possibly an automatic retry) is in flight.
     if (!window.confirm("Discard this workout? Everything you logged in it will be lost.")) return;
     clearDraft();
     router.replace("/");
@@ -225,13 +309,27 @@ export function WorkoutScreen() {
           </div>
         </div>
         <button
-          onClick={finish}
+          onClick={draft.finishedAt ? retryFinishing : finish}
           disabled={saving}
           className="h-12 shrink-0 rounded-xl bg-emerald-500 px-5 text-lg font-bold text-zinc-950 disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Finish"}
+          {saving ? "Saving…" : draft.finishedAt ? "Save now" : "Finish"}
         </button>
       </header>
+
+      {draft.finishedAt && (
+        <div className="mt-3 rounded-lg bg-sky-950 p-3 text-sky-200">
+          <p className="font-medium">Finished — not saved yet</p>
+          <p className="mt-1 text-sm opacity-90">
+            {online ? "Trying to save…" : "You're offline. This will save automatically as soon as you're back online."}
+          </p>
+          {!saving && (
+            <button onClick={keepEditing} className="mt-2 h-11 w-full rounded-lg bg-sky-900 font-semibold">
+              Keep editing instead
+            </button>
+          )}
+        </div>
+      )}
 
       {storageWarning && (
         <p className="mt-3 rounded-lg bg-amber-950 p-3 text-sm text-amber-200">
@@ -248,7 +346,10 @@ export function WorkoutScreen() {
             </Link>
           )}
           {!saving && saveFailed && !signedOut && (
-            <button onClick={finish} className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold">
+            <button
+              onClick={draft.finishedAt ? retryFinishing : finish}
+              className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold"
+            >
               Try saving again
             </button>
           )}
@@ -345,7 +446,7 @@ export function WorkoutScreen() {
         + Add exercise
       </button>
 
-      <button onClick={discard} className="mt-8 h-12 w-full text-red-400">
+      <button onClick={discard} disabled={saving} className="mt-8 h-12 w-full text-red-400 disabled:opacity-50">
         Discard workout
       </button>
 

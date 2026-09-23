@@ -215,6 +215,33 @@ Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9
 The screen will state this is an estimate of recent training exposure, **not** medical
 recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is documented.
 
+## 6.5. Offline support (Stage 3, built)
+
+- **Service worker** (`public/sw.js`, ~50 lines): network-first, cache-fallback for every
+  same-origin GET request. No build-time precache list (Next's static filenames are
+  content-hashed per deploy) — pages and assets are cached as they're actually visited.
+  Supabase calls are a different origin, so the worker never touches saving/loading real
+  data; it only lets the last-visited screens (and the JS/CSS needed to run them) open
+  with no signal. `manifest.webmanifest` + the icons in `public/icons/` make the app
+  installable from Safari.
+- **Exercise library & "last time" values**: cached in `localStorage`
+  (`src/components/ExercisePicker.tsx`, `src/lib/client/previousSetsCache.ts`) on every
+  successful fetch, read back instantly on the next load, and refreshed in the background
+  when online. Templates need no separate cache — they arrive embedded in the home page's
+  own HTML, which the service worker already caches.
+- **Finishing offline**: tapping Finish immediately marks the draft `finishedAt` in local
+  storage, before the network call — so closing the app mid-failure still shows "finished,
+  not saved yet" rather than reverting to "in progress". The workout screen retries the
+  same idempotent `save_workout`/`update_workout` RPCs automatically on load, on the
+  browser's `online` event, and every 20s in between (iOS doesn't always fire `online`
+  reliably), until it succeeds.
+- **Known limitation**: the service worker's cache is keyed by URL only, not by which
+  account was signed in when it was cached. If more than one person shares the same
+  phone and browser, the very first offline screen after switching accounts could
+  briefly show the previous account's last-cached page until back online. Not a concern
+  for one person per phone (the expected case); flagged here rather than solved, per
+  CLAUDE.md's "avoid overengineering."
+
 ## 7. Assumptions, risks, and complexity traps
 
 ### Assumptions (tell me if any are wrong)

@@ -19,8 +19,9 @@ export function StartWorkoutButton({ unit, template, className, children }: Prop
   function start() {
     const existing = loadDraft();
     if (existing) {
+      const status = existing.finishedAt ? "finished, but not saved yet" : "in progress";
       // The safe choice (resume) is the default; discarding needs a second, explicit "OK".
-      if (window.confirm(`You already have "${existing.name}" in progress. Resume it?`)) {
+      if (window.confirm(`You already have "${existing.name}" (${status}). Resume it?`)) {
         router.push("/workout");
         return;
       }
