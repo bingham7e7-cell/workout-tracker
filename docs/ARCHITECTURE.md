@@ -49,6 +49,7 @@ Supabase
 | Input validation | `zod` | One set of rules shared by the browser and the server. The database also enforces its own constraints as a last line of defence. |
 | Reads / writes | Pages read on the server (as the signed-in user). Writes go from the browser straight to Supabase: Postgres functions (RPC) for multi-row saves, plain deletes otherwise. | One simple pattern. RLS protects every call. Saving a workout touches 3 tables, so a Postgres function does it in one transaction. Browser-side saves also work with the offline retry in Stage 3. |
 | Charts (Stage 4) | Recharts | Common, simple, React-friendly. |
+| Body diagram | `@musclemap/react` (pinned, MIT) | Flat-vector front/back muscle diagram with a legend and tap-to-select, isolated behind `src/components/MuscleDiagram.tsx` so the rest of the app never imports it directly. Attribution in Settings > Credits. |
 | PWA (Stage 3) | Hand-written `manifest.webmanifest` + small service worker | PWA plugins for Next.js break often across versions; a ~50-line worker is easier to maintain. |
 | Unit tests | Vitest | Fast, TypeScript-native. |
 | DB tests | Vitest + **PGlite** (real Postgres compiled to WebAssembly, runs in-process) | Lets us run the real migrations and test the save/edit/duplicate logic and RLS without Docker or a live Supabase project. |
@@ -123,10 +124,14 @@ auth.users (managed by Supabase)
 
 ### Tables
 
-**`muscle_groups`** — shared, read-only reference list (~16 rows: chest, front delts,
-side delts, rear delts, biceps, triceps, forearms, upper back/traps, lats, lower back,
-abs, obliques, glutes, quads, hamstrings, calves, adductors). `id` is a text slug
-like `'chest'` which the SVG diagram also uses. Readable by any signed-in user.
+**`muscle_groups`** — shared, read-only reference list. 21 rows, matching the
+`@musclemap/react` body-diagram library's most detailed muscle set: `chest`,
+`shoulders_front/side/rear`, `trapezius`, `rhomboids`, `back_upper`, `lats`, `back_lower`,
+`biceps`, `triceps`, `forearms`, `core`, `obliques`, `hip_flexors`, `glutes`, `quads`,
+`hamstrings`, `adductors`, `abductors`, `calves`. `id` is a text slug that is also
+MuscleMap's own group name lowercased (e.g. `shoulders_front` ↔ `SHOULDERS_FRONT`), so
+`src/components/MuscleDiagram.tsx` converts between them with no lookup table. Readable
+by any signed-in user.
 
 **`profiles`** — one row per user: `id` (= auth user id), `weight_unit` (`'kg'|'lb'`),
 `created_at`. Created automatically on first sign-in by a database trigger.

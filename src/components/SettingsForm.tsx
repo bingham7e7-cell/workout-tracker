@@ -73,6 +73,17 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
       <ExportDataButtons />
 
       <section>
+        <h2 className="mb-1 font-semibold">Credits</h2>
+        <p className="text-sm text-zinc-400">
+          Body diagrams by{" "}
+          <a href="https://github.com/Jsplice/MuscleMap" className="text-emerald-400 underline">
+            MuscleMap
+          </a>
+          , used under the MIT license.
+        </p>
+      </section>
+
+      <section>
         <h2 className="mb-1 font-semibold">Account</h2>
         <p className="mb-3 text-sm text-zinc-400">Signed in as {email}</p>
         <button onClick={signOut} className="h-12 w-full rounded-xl bg-zinc-800 font-medium">
