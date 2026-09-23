@@ -33,22 +33,45 @@ You'll create two free accounts: **Supabase** (the database and sign-in) and **V
 
 ## 3. Create the database tables (run the migrations)
 
-This creates all the tables, the security rules, and the default exercise library.
+This creates all the tables, the security rules, and the default exercise library. Every file
+lives in the `supabase/migrations/` folder of the GitHub repository, and they must be run
+**in the order listed below, each one only once.**
+
+Repeat these five steps for **each** file, top to bottom:
 
 1. In Supabase, click **SQL Editor** in the left sidebar, then **New query**.
-2. On GitHub, open the repository and go to the `supabase/migrations/` folder. Open the
-   **first** file, `20260922000001_initial_schema.sql`, click the **Copy raw file** button
-   (two overlapping squares), and paste the text into the Supabase SQL editor.
-3. Click **Run**. You should see "Success. No rows returned".
-4. Click **New query** again, then repeat with the **second** file,
-   `20260922000002_default_exercise_library.sql`.
-5. Check it worked: click **Table Editor** in the sidebar. You should see tables such as
-   `exercises`, `templates`, `workouts`, and `workout_sets`.
+2. On GitHub, open the repository, go to `supabase/migrations/`, and open the file.
+3. Click the **Copy raw file** button (two overlapping squares, top-right of the file view).
+4. Paste the copied text into the empty Supabase SQL editor (it should replace whatever was
+   there — don't paste it after old text from a previous file).
+5. Click **Run** (or press Cmd/Ctrl+Enter). You should see **"Success. No rows returned"** at
+   the bottom. Then go back to step 1 for the next file.
+
+Current migration files, in order:
+
+| # | File | What it does |
+|---|------|---------------|
+| 1 | `20260922000001_initial_schema.sql` | Creates all the core tables and security rules |
+| 2 | `20260922000002_default_exercise_library.sql` | Adds the ~50 default exercises |
+| 3 | `20260923000001_previous_exercise_sets.sql` | "Last time" values while logging a set |
+| 4 | `20260924000001_musclemap_muscle_groups.sql` | Switches the body diagram to the MuscleMap library |
+| 5 | `20260924000002_plans.sql` | Rolling plans (Push/Pull/Legs-style rotations) |
+| 6 | `20260924000003_profile_time_zone.sql` | Automatic/UTC time zone display setting |
+| 7 | `20260924000004_starter_plans.sql` | Built-in Full Body / Upper-Lower / Push-Pull-Legs plans |
+| 8 | `20260924000005_ai_plan_import.sql` | "Build a plan with AI" import |
+
+If you've already set up the app before, you've already run the earlier files in this table —
+just run whichever ones you haven't yet, in order, starting from the first one you don't
+recognize.
+
+**Check it worked:** click **Table Editor** in the sidebar. After the first two files you should
+see tables like `exercises`, `templates`, `workouts`, and `workout_sets`; after all eight, you
+should also see `plans`, `plan_workouts`, `starter_plans`, and `muscle_groups` should have 21
+rows (open the table and check the row count at the bottom).
 
 > Always run migration files **in order**, and **each one only once**. If a run fails partway
-> through, nothing from that file is saved (Postgres rolls the whole file back). Tell me the
-> error message and we'll fix it.
-> 
+> through, nothing from that file is saved (Postgres rolls the whole file back) — copy the exact
+> red error message Supabase shows and tell me, and we'll fix it before you try again.
 ## 3.5. Configure Resend SMTP (Do this before Step 4)
 
 This unlocks the ability to customize your email templates on the Supabase Free Tier.
