@@ -39,3 +39,11 @@ export function setCachedPreviousSets(exerciseId: string, sets: PreviousSet[] | 
   cache[exerciseId] = sets;
   writeCache(cache);
 }
+
+export function clearPreviousSetsCache(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Nothing else we can do.
+  }
+}

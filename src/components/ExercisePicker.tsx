@@ -2,36 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { readOfflineExercises, writeOfflineExercises, type CachedExercise } from "@/lib/client/exerciseLibraryCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
 import { exerciseInputSchema, firstIssue } from "@/lib/domain/schemas";
 
 export type PickedExercise = { exerciseId: string; name: string };
-type Exercise = { id: string; name: string; equipment: string | null };
+type Exercise = CachedExercise;
 type Muscle = { id: string; name: string };
 
 const EQUIPMENT = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "EZ Bar", "Kettlebell", "Other"];
 
-// Kept on the device so the picker still works with no signal, after at least one
-// successful load. Cached for the session so reopening the picker is instant.
-const OFFLINE_KEY = "workout-tracker.exercise-library.v1";
+// Cached for the session so reopening the picker is instant. The on-device (offline)
+// copy lives in lib/client/exerciseLibraryCache so it can be cleared on sign-out.
 let exerciseCache: Exercise[] | null = null;
-
-function readOfflineExercises(): Exercise[] | null {
-  try {
-    const raw = localStorage.getItem(OFFLINE_KEY);
-    return raw ? (JSON.parse(raw) as Exercise[]) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeOfflineExercises(exercises: Exercise[]) {
-  try {
-    localStorage.setItem(OFFLINE_KEY, JSON.stringify(exercises));
-  } catch {
-    // Not critical: the in-memory cache still works for this session.
-  }
-}
 
 async function fetchExercises(): Promise<Exercise[]> {
   const { data, error } = await getSupabaseBrowser()

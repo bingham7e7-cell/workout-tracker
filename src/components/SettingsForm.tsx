@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { clearOfflineExercises } from "@/lib/client/exerciseLibraryCache";
+import { clearPreviousSetsCache } from "@/lib/client/previousSetsCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
 import type { WeightUnit } from "@/lib/domain/units";
 
@@ -32,6 +34,15 @@ export function SettingsForm({ unit: initialUnit, email }: { unit: WeightUnit; e
 
   async function signOut() {
     await getSupabaseBrowser().auth.signOut();
+    // These caches (Stage 3, offline support) hold this account's exercise names and
+    // recent set history. Clear them so a shared phone never shows one person's data
+    // to the next account before the first background refresh completes.
+    clearOfflineExercises();
+    clearPreviousSetsCache();
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
     router.replace("/login");
     router.refresh();
   }

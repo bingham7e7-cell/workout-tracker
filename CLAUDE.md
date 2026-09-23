@@ -71,6 +71,14 @@ After Stage 1: walk the owner through Supabase setup, merging to main, and Verce
 - Deleting a completed workout requires explicit confirmation.
 - Handle DB/network failures gracefully: clear message, keep user's data, offer retry.
 
+## Offline / PWA (Stage 3, built)
+- `public/sw.js`: network-first, cache-fallback, same-origin GET only — never touches
+  Supabase calls. Bump `CACHE_NAME` in that file if a change means old cached pages/assets
+  need to be dropped on next deploy (rare; the file's own comment explains why).
+- On-device caches (exercise library, previous-set values, the service worker's page
+  cache) all get cleared on sign-out (`SettingsForm.tsx`) so a shared phone doesn't show
+  one account's data to the next. Add any new offline cache to that same sign-out cleanup.
+
 ## Security
 - NEVER use or expose the Supabase service-role key or DB password. The app uses only
   `NEXT_PUBLIC_SUPABASE_URL` and the public anon/publishable key; RLS protects data.

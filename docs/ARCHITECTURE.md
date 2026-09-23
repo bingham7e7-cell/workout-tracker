@@ -235,12 +235,18 @@ recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is d
   same idempotent `save_workout`/`update_workout` RPCs automatically on load, on the
   browser's `online` event, and every 20s in between (iOS doesn't always fire `online`
   reliably), until it succeeds.
-- **Known limitation**: the service worker's cache is keyed by URL only, not by which
-  account was signed in when it was cached. If more than one person shares the same
-  phone and browser, the very first offline screen after switching accounts could
-  briefly show the previous account's last-cached page until back online. Not a concern
-  for one person per phone (the expected case); flagged here rather than solved, per
-  CLAUDE.md's "avoid overengineering."
+- **Sign-out clears all three on-device caches** (`SettingsForm.tsx`'s `signOut()`): the
+  exercise-library cache, the previous-values cache, and the service worker's whole
+  Cache Storage. This is what actually protects a shared phone — as long as the
+  previous person signs out first, the next account starts from nothing cached and
+  refetches everything online before anything offline-dependent is shown.
+- **Known limitation**: this only helps if the previous person actually signs out.
+  The service worker's page cache is keyed by URL only, not by account, so if someone
+  closes the app without signing out and a different account signs in on the same
+  phone and browser, the very first offline screen before the next successful online
+  load could briefly show the previous account's last-cached page. Not a concern for
+  one person per phone (the expected case); flagged here rather than solved further,
+  per CLAUDE.md's "avoid overengineering."
 
 ## 7. Assumptions, risks, and complexity traps
 

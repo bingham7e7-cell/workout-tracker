@@ -44,16 +44,27 @@ export function WorkoutScreen() {
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   // A ref (not state) so a lightning-fast double tap can't slip through.
   const savingRef = useRef(false);
+  // Mirrors `signedOut` for the auto-retry effect below, which only runs once (mount)
+  // and would otherwise close over the state's initial value forever.
+  const signedOutRef = useRef(false);
   // Exercise ids we've already asked the server for "last time" values (successfully, or exhausted retries).
   const fetchedPreviousRef = useRef(new Set<string>());
   // Retry attempts made per exercise id, so a flaky network doesn't retry forever.
   const previousAttemptsRef = useRef(new Map<string, number>());
   const [previousRetryTick, setPreviousRetryTick] = useState(0);
 
-  /** Apply a change to the stored workout; the screen re-renders from storage. */
+  /**
+   * Apply a change to the stored workout; the screen re-renders from storage.
+   * Not gated on `savingRef`: a save (foreground or an automatic background
+   * retry while finishing offline) reads its own snapshot up front, so an edit
+   * made while one is in flight just isn't part of that attempt — it's picked
+   * up by the next one. Blocking edits here would otherwise silently drop
+   * keystrokes typed during a slow/retrying save, which is exactly when
+   * editing matters most (flaky gym signal).
+   */
   function commit(change: (d: WorkoutDraft) => WorkoutDraft) {
     const current = loadDraft();
-    if (!current || savingRef.current) return;
+    if (!current) return;
     if (!saveDraft(change(current))) setStorageWarning(true);
   }
 
@@ -141,7 +152,7 @@ export function WorkoutScreen() {
 
   function toggleDone(exKey: string, setKey: string) {
     const current = loadDraft();
-    if (!current || savingRef.current) return;
+    if (!current) return; // See the comment on `commit` above — not gated on savingRef.
     const result = toggleSetDone(current, exKey, setKey);
     if (result.error) {
       setSetErrors((errs) => ({ ...errs, [setKey]: result.error! }));
@@ -151,8 +162,14 @@ export function WorkoutScreen() {
     if (!saveDraft(result.draft)) setStorageWarning(true);
   }
 
-  /** Sends a finished workout to the database. Safe to call again after a failure — same idempotent RPC. */
-  async function attemptSave(payload: WorkoutPayload) {
+  /**
+   * Sends a finished workout to the database. Safe to call again after a
+   * failure — same idempotent RPC. `background: true` is for the automatic
+   * retries (on load, on regaining a connection, and every 20s while
+   * offline): a background attempt failing yet again isn't news, so it skips
+   * the scroll-to-top a foreground (user-tapped) failure gets.
+   */
+  async function attemptSave(payload: WorkoutPayload, opts: { background?: boolean } = {}) {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -179,10 +196,12 @@ export function WorkoutScreen() {
     } catch (e) {
       setError(`${describeError(e)} Your workout is still safe on this phone${navigator.onLine ? "" : " — it'll save automatically once you're back online"}.`);
       setSaveFailed(true);
-      setSignedOut(isSignedOutError(e));
+      const nowSignedOut = isSignedOutError(e);
+      setSignedOut(nowSignedOut);
+      signedOutRef.current = nowSignedOut;
       savingRef.current = false;
       setSaving(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (!opts.background) window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
 
@@ -218,17 +237,20 @@ export function WorkoutScreen() {
   }
 
   /** Retries saving a workout that already finished but hasn't reached the database yet. */
-  function retryFinishing() {
+  function retryFinishing(opts: { background?: boolean } = {}) {
+    // An automatic retry backs off once we know the session is dead — it would just
+    // keep failing the same way until the owner signs back in, for no benefit.
+    if (opts.background && signedOutRef.current) return;
     const current = loadDraft();
     if (!current?.finishedAt || savingRef.current) return;
     const built = toSavePayload(current, new Date(current.finishedAt));
     if ("error" in built) return; // Already validated when it was first marked finishing.
-    attemptSave(built.payload);
+    attemptSave(built.payload, opts);
   }
 
   function keepEditing() {
     const current = loadDraft();
-    if (!current || savingRef.current) return;
+    if (!current) return;
     saveDraft(cancelFinishing(current));
     setError(null);
     setSaveFailed(false);
@@ -239,14 +261,15 @@ export function WorkoutScreen() {
   // periodically in between in case the 'online' event doesn't fire (it isn't fully
   // reliable on iOS).
   useEffect(() => {
+    const backgroundRetry = () => retryFinishing({ background: true });
     // Deferred (not called synchronously in the effect body): this may finish the
     // workout via setState, which React wants scheduled after the initial commit.
-    const initial = setTimeout(retryFinishing, 0);
-    window.addEventListener("online", retryFinishing);
-    const interval = setInterval(retryFinishing, 20_000);
+    const initial = setTimeout(backgroundRetry, 0);
+    window.addEventListener("online", backgroundRetry);
+    const interval = setInterval(backgroundRetry, 20_000);
     return () => {
       clearTimeout(initial);
-      window.removeEventListener("online", retryFinishing);
+      window.removeEventListener("online", backgroundRetry);
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,7 +332,7 @@ export function WorkoutScreen() {
           </div>
         </div>
         <button
-          onClick={draft.finishedAt ? retryFinishing : finish}
+          onClick={() => (draft.finishedAt ? retryFinishing() : finish())}
           disabled={saving}
           className="h-12 shrink-0 rounded-xl bg-emerald-500 px-5 text-lg font-bold text-zinc-950 disabled:opacity-60"
         >
@@ -321,13 +344,15 @@ export function WorkoutScreen() {
         <div className="mt-3 rounded-lg bg-sky-950 p-3 text-sky-200">
           <p className="font-medium">Finished — not saved yet</p>
           <p className="mt-1 text-sm opacity-90">
-            {online ? "Trying to save…" : "You're offline. This will save automatically as soon as you're back online."}
+            {!online
+              ? "You're offline. This will save automatically as soon as you're back online."
+              : saving
+                ? "Trying to save…"
+                : "Waiting to retry…"}
           </p>
-          {!saving && (
-            <button onClick={keepEditing} className="mt-2 h-11 w-full rounded-lg bg-sky-900 font-semibold">
-              Keep editing instead
-            </button>
-          )}
+          <button onClick={keepEditing} className="mt-2 h-11 w-full rounded-lg bg-sky-900 font-semibold">
+            Keep editing instead
+          </button>
         </div>
       )}
 
@@ -347,7 +372,7 @@ export function WorkoutScreen() {
           )}
           {!saving && saveFailed && !signedOut && (
             <button
-              onClick={draft.finishedAt ? retryFinishing : finish}
+              onClick={() => (draft.finishedAt ? retryFinishing() : finish())}
               className="mt-2 block h-11 w-full rounded-lg bg-red-900 font-semibold"
             >
               Try saving again
