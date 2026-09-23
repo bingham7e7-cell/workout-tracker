@@ -225,7 +225,8 @@ recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is d
 3. Only **finished** workouts go to the database; an in-progress workout exists only on
    the device where you started it.
 4. Only weight/reps/RPE/warm-up per set. No supersets, tempo, distance/time, or cardio.
-5. One user now; no admin screens.
+5. Multi-user in practice now (you plus anyone else who signs up); still no admin screens —
+   Row Level Security is the only thing that scopes data per user, by design.
 
 ### Risks
 1. **Magic links + iPhone Home Screen apps don't mix well.** An installed PWA has storage

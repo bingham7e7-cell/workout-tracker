@@ -1,9 +1,11 @@
 # CLAUDE.md — rules for working on this repo
 
-Personal, mobile-first (iPhone) strength-training PWA.
+Mobile-first (iPhone) strength-training PWA, **multi-user**: the owner plus anyone else who
+signs up, each seeing only their own data.
 Stack: Next.js (App Router) + TypeScript + Tailwind CSS + Supabase (Auth + PostgreSQL), deployed on Vercel.
 
-- Full spec: `docs/SPEC.md` (source of truth for scope).
+- Full spec: `docs/SPEC.md` (source of truth for scope; see its "Updates since the original
+  spec" section for the multi-user / auth-provider changes made after Stage 1).
 - Architecture & schema: `docs/ARCHITECTURE.md` (keep it updated when design changes).
 - Owner setup steps: `docs/SETUP.md` (keep in sync when setup changes).
 - Next.js 16 notes (proxy.ts instead of middleware, etc.): see @AGENTS.md.
@@ -14,6 +16,15 @@ Stack: Next.js (App Router) + TypeScript + Tailwind CSS + Supabase (Auth + Postg
   (Supabase setup, env vars, migrations, deploying, iPhone install).
 - Before any **major architectural change**, explain why it is necessary and get approval.
   Never silently restructure the project.
+- The owner is one user among potentially many, not an admin. Never add owner-only or
+  cross-user visibility — every table stays scoped by `user_id` + RLS with no exceptions.
+
+## Auth
+- Sign-in is a 6-digit emailed one-time code (Supabase OTP via `verifyOtp`), with a magic-link
+  fallback for Safari. Supabase sends these emails over **Resend SMTP** on the owner's own
+  domain (`docs/SETUP.md` §3.5), not Supabase's shared rate-limited sender.
+- New sign-ups must stay **enabled** — this is a multi-user app now. Do not add anything that
+  turns sign-ups off.
 
 ## Priorities (in order)
 Reliability → fast workout entry → simple architecture → maintainable code.

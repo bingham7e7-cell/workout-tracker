@@ -159,15 +159,16 @@ Supabase only sends sign-in links that point to websites you've approved.
 4. You should see the **Workouts** home screen. Tap **Templates** and check that you can add
    exercises from the library.
 
-## 9. Lock the door (turn off new sign-ups)
+## 9. This app is multi-user — sign-ups stay on
 
-Your site is public, so anyone who finds the address could create their own account. They
-could never see your data, but they could use up your free quota. Now that your account exists:
+Your site is public, and that's intentional: other people can sign up and use it too. Each
+person only ever sees their own workouts, templates and exercises — the database enforces
+this with Row Level Security, not just app code, so there's no admin view and no way for
+anyone (including you) to see someone else's data. Leave **"Allow new users to sign up"**
+turned on in **Authentication → Sign In / Providers**.
 
-1. In Supabase, go to **Authentication → Sign In / Providers**.
-2. Turn **off** "Allow new users to sign up" and click **Save**.
-
-You can still sign in, because this only blocks *new* accounts.
+If it ever becomes a problem (spam sign-ups, hitting your free-tier email quota via Resend),
+you can turn it off there at any time — existing accounts keep working either way.
 
 ## 10. Add to your iPhone Home Screen
 
