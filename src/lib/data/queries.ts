@@ -192,7 +192,8 @@ function toSessions(rows: SessionRow[]): ExerciseSession[] {
       sets: [...r.workout_sets]
         .sort((a, b) => a.position - b.position)
         .map((s) => ({ weightKg: Number(s.weight_kg), reps: s.reps, isWarmup: s.is_warmup })),
-    }));
+    }))
+    .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)); // Deterministic tie-breaking in personalRecords.
 }
 
 export type ExerciseHistoryEntry = {
