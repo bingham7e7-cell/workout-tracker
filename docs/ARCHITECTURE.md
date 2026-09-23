@@ -201,7 +201,7 @@ Only computed for working sets with 1–12 reps (accuracy drops sharply above ~1
 
 **Volume:** `Σ weight × reps` over working (non-warm-up) sets.
 
-**Muscle workload (Stage 5):** for each working set in the last 7 days, for each muscle it hits:
+**Muscle workload (Stage 5, built):** for each working set in the last 21 days, for each muscle it hits:
 
 ```
 contribution = effort × role × recency
@@ -212,8 +212,14 @@ muscle workload = sum of contributions  ("effective recent sets")
 ```
 
 Colors by bucket, e.g. 0 = untrained, <2 light, 2–5 moderate, 5–9 high, ≥9 very high.
-The screen will state this is an estimate of recent training exposure, **not** medical
-recovery or readiness. Exact numbers may be tuned in Stage 5 — any change is documented.
+The screen states this is an estimate of recent training exposure, **not** medical
+recovery or readiness.
+
+The 21-day query window (not 7) is intentional: with a 48-hour half-life, a set is
+still worth ~9–13% of its starting contribution at day 6–7, so a hard 7-day cutoff
+would visibly and abruptly drop weight that should still be fading out smoothly. 21
+days is where a contribution is under 0.1% of its start — effectively zero — so
+nothing the formula would otherwise count is missed.
 
 ## 6.5. Offline support (Stage 3, built)
 

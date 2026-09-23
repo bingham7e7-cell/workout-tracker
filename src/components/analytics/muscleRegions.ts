@@ -81,7 +81,9 @@ export const FRONT_MUSCLES: MuscleShape[] = [
   ]),
   paired("obliques", [{ type: "rect", x: 78, y: 150, width: 18, height: 74, rx: 8 }]),
   paired("quads", [{ type: "rect", x: 80, y: 256, width: 34, height: 116, rx: 16 }]),
-  paired("adductors", [{ type: "rect", x: 112, y: 260, width: 14, height: 92, rx: 7 }]),
+  // Inner-thigh strip near the right leg's inner edge (thigh spans x 76-118); mirroring
+  // gives the left leg its own separate strip near x 126-142, not an overlapping blob.
+  paired("adductors", [{ type: "rect", x: 98, y: 260, width: 16, height: 92, rx: 7 }]),
   paired("calves", [{ type: "ellipse", cx: 97, cy: 410, rx: 15, ry: 40 }]),
 ];
 
