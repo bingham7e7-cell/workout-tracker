@@ -7,21 +7,27 @@ import { clearOfflineExercises } from "@/lib/client/exerciseLibraryCache";
 import { clearPreviousSetsCache } from "@/lib/client/previousSetsCache";
 import { describeError, timeoutSignal } from "@/lib/client/errors";
 import { ExportDataButtons } from "@/components/ExportDataButtons";
+import { TimeZonePicker } from "@/components/TimeZonePicker";
+import { deviceTimeZone, formatZoneLabel } from "@/lib/domain/timezone";
 import type { WeightUnit } from "@/lib/domain/units";
-import type { TimeZoneMode } from "@/lib/format";
+import type { TimeZoneMode, TimeZoneSetting } from "@/lib/format";
 
 export function SettingsForm({
   unit: initialUnit,
-  timeZoneMode: initialTimeZoneMode,
+  timeZoneSetting: initialTimeZoneSetting,
   email,
 }: {
   unit: WeightUnit;
-  timeZoneMode: TimeZoneMode;
+  timeZoneSetting: TimeZoneSetting;
   email: string;
 }) {
   const router = useRouter();
   const [unit, setUnit] = useState(initialUnit);
-  const [timeZoneMode, setTimeZoneMode] = useState(initialTimeZoneMode);
+  const [timeZoneMode, setTimeZoneMode] = useState<TimeZoneMode>(initialTimeZoneSetting.mode);
+  const [zone, setZone] = useState<string | null>(
+    initialTimeZoneSetting.mode === "fixed" ? initialTimeZoneSetting.zone : null,
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tzError, setTzError] = useState<string | null>(null);
 
@@ -44,23 +50,35 @@ export function SettingsForm({
     router.refresh();
   }
 
-  async function changeTimeZoneMode(next: TimeZoneMode) {
-    if (next === timeZoneMode) return;
-    const previous = timeZoneMode;
-    setTimeZoneMode(next);
+  async function saveTimeZone(nextMode: TimeZoneMode, nextZone: string | null) {
+    if (nextMode === timeZoneMode && nextZone === zone) return;
+    const previousMode = timeZoneMode;
+    const previousZone = zone;
+    setTimeZoneMode(nextMode);
+    setZone(nextZone);
     setTzError(null);
     const { data: claims } = await getSupabaseBrowser().auth.getClaims();
     const { error } = await getSupabaseBrowser()
       .from("profiles")
-      .update({ time_zone_mode: next })
+      .update({ time_zone_mode: nextMode, time_zone_name: nextZone })
       .eq("id", claims?.claims?.sub ?? "")
       .abortSignal(timeoutSignal());
     if (error) {
-      setTimeZoneMode(previous);
+      setTimeZoneMode(previousMode);
+      setZone(previousZone);
       setTzError(describeError(error));
       return;
     }
     router.refresh();
+  }
+
+  function changeTimeZoneMode(next: TimeZoneMode) {
+    if (next === "fixed") {
+      saveTimeZone("fixed", zone ?? deviceTimeZone());
+      setPickerOpen(true);
+      return;
+    }
+    saveTimeZone(next, null);
   }
 
   async function signOut() {
@@ -106,19 +124,36 @@ export function SettingsForm({
           Controls how dates and times are shown throughout the app. Timestamps are always stored precisely, so
           switching never changes your data.
         </p>
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-900 p-1">
-          {(["auto", "utc"] as const).map((tz) => (
+        <div className="grid grid-cols-3 gap-2 rounded-xl bg-zinc-900 p-1">
+          {(["auto", "utc", "fixed"] as const).map((tz) => (
             <button
               key={tz}
               onClick={() => changeTimeZoneMode(tz)}
               className={`h-12 rounded-lg text-lg font-semibold ${timeZoneMode === tz ? "bg-emerald-500 text-zinc-950" : "text-zinc-300"}`}
             >
-              {tz === "auto" ? "Automatic" : "UTC"}
+              {tz === "auto" ? "Automatic" : tz === "utc" ? "UTC" : "Fixed"}
             </button>
           ))}
         </div>
+        {timeZoneMode === "fixed" && (
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="mt-2 flex h-12 w-full items-center justify-between rounded-xl bg-zinc-900 px-4 text-left"
+          >
+            <span className="truncate">{zone ? formatZoneLabel(zone) : "Choose a time zone"}</span>
+            <span className="ml-2 shrink-0 text-emerald-400">Change</span>
+          </button>
+        )}
         {tzError && <p className="mt-3 rounded-lg bg-red-950 p-3 text-red-200">{tzError}</p>}
       </section>
+
+      {pickerOpen && (
+        <TimeZonePicker
+          value={zone ?? deviceTimeZone()}
+          onChange={(next) => saveTimeZone("fixed", next)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       <ExportDataButtons />
 

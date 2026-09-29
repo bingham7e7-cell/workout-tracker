@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { LocalTime } from "@/components/LocalTime";
 import { MuscleDiagram } from "@/components/MuscleDiagram";
 import { ProgressChart, type ChartPoint } from "@/components/analytics/ProgressChart";
-import { getExerciseHistory, getExerciseMuscles, getTimeZoneMode, getWeightUnit } from "@/lib/data/queries";
+import { getExerciseHistory, getExerciseMuscles, getTimeZoneSetting, getWeightUnit } from "@/lib/data/queries";
 import { progressPoints } from "@/lib/domain/analytics";
 import { formatWeight, fromKg } from "@/lib/domain/units";
 import { roleWorkload } from "@/lib/domain/workload";
@@ -16,7 +16,7 @@ export default async function ExerciseHistoryPage({ params }: PageProps<"/exerci
   const [history, unit, tz, muscles] = await Promise.all([
     getExerciseHistory(id),
     getWeightUnit(),
-    getTimeZoneMode(),
+    getTimeZoneSetting(),
     getExerciseMuscles(id),
   ]);
   if (!history) notFound();

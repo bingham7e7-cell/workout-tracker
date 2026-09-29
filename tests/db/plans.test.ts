@@ -172,6 +172,51 @@ describe("plan advancing", () => {
   });
 });
 
+describe("editing a workout's time", () => {
+  test("correcting a finished workout's start/end time via update_workout changes its stored date but not the active plan position", async () => {
+    const push = await makeTemplate(alice, "Push Time", "Barbell Bench Press");
+    const pull = await makeTemplate(alice, "Pull Time", "Barbell Row");
+    const plan = await makePlan(alice, "PPL Time", [push, pull]);
+    await setActivePlan(alice, plan);
+    expect(await activePosition(alice)).toBe(0);
+
+    const bench = await exerciseId(alice, "Barbell Bench Press");
+    let draft: WorkoutDraft = createDraft({
+      name: "Push",
+      templateId: push,
+      unit: "lb",
+      exercises: [{ exerciseId: bench, name: "Barbell Bench Press", targetSets: 1, targetReps: 5 }],
+      now: new Date("2026-09-01T10:00:00Z"),
+    });
+    const ex = draft.exercises[0];
+    draft = updateSet(draft, ex.key, ex.sets[0].key, { weight: "100" });
+    draft = toggleSetDone(draft, ex.key, ex.sets[0].key).draft;
+    const built = toSavePayload(draft, new Date("2026-09-01T10:30:00Z"));
+    if ("error" in built) throw new Error(built.error);
+    await db.asUser(alice, () => db.query("select save_workout($1::jsonb)", [JSON.stringify(built.payload)]));
+    // Finishing the suggested workout (Push, position 0) advances the plan to Pull.
+    expect(await activePosition(alice)).toBe(1);
+
+    // Edit the workout's date/time only (e.g. the phone's clock was wrong that day).
+    const edited = structuredClone(built.payload);
+    edited.started_at = "2026-08-20T09:00:00.000Z";
+    edited.finished_at = "2026-08-20T09:30:00.000Z";
+    await db.asUser(alice, () => db.query("select update_workout($1::jsonb)", [JSON.stringify(edited)]));
+
+    const w = await db.asUser(alice, () =>
+      db.query<{ started_at: string; finished_at: string }>(
+        "select started_at, finished_at from workouts where id = $1",
+        [built.payload.id],
+      ),
+    );
+    expect(new Date(w.rows[0].started_at).toISOString()).toBe("2026-08-20T09:00:00.000Z");
+    expect(new Date(w.rows[0].finished_at).toISOString()).toBe("2026-08-20T09:30:00.000Z");
+
+    // The active plan's position is untouched by the edit (only finishing via save_workout advances it).
+    expect(await activePosition(alice)).toBe(1);
+  });
+});
+
 describe("skipping a plan", () => {
   test("moves to the next workout without deleting anything from the plan", async () => {
     const a = await makeTemplate(alice, "Skip A", "Barbell Bench Press");

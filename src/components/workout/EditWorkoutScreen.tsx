@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { ExercisePicker } from "@/components/ExercisePicker";
 import { SetRow } from "@/components/workout/SetRow";
+import { WorkoutTimeEditor } from "@/components/workout/WorkoutTimeEditor";
 import {
   addExercise,
   addSet,
@@ -14,20 +15,33 @@ import {
   removeExercise,
   removeSet,
   renameDraft,
+  setStartedAt,
   toSavePayload,
   toggleSetDone,
   updateSet,
+  validateWorkoutTimes,
   type EditableWorkout,
   type WorkoutDraft,
 } from "@/lib/domain/draft";
 import { describeError, isSignedOutError, timeoutSignal } from "@/lib/client/errors";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type { WeightUnit } from "@/lib/domain/units";
+import type { TimeZoneSetting } from "@/lib/format";
 
 /** Edits an already-saved workout: same set-logging UI as the active workout, backed by `update_workout`. */
-export function EditWorkoutScreen({ workout, unit }: { workout: EditableWorkout; unit: WeightUnit }) {
+export function EditWorkoutScreen({
+  workout,
+  unit,
+  timeZoneSetting,
+}: {
+  workout: EditableWorkout;
+  unit: WeightUnit;
+  timeZoneSetting: TimeZoneSetting;
+}) {
   const router = useRouter();
   const [draft, setDraft] = useState<WorkoutDraft>(() => editDraftFromWorkout(workout, unit));
+  const [startedAtIso, setStartedAtIso] = useState(workout.startedAt);
+  const [finishedAtIso, setFinishedAtIso] = useState(workout.finishedAt);
   const [picking, setPicking] = useState(false);
   const [setErrors, setSetErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +86,13 @@ export function EditWorkoutScreen({ workout, unit }: { workout: EditableWorkout;
       return;
     }
 
-    const built = toSavePayload(draft, new Date(workout.finishedAt), workout.notes);
+    const timeError = validateWorkoutTimes(startedAtIso, finishedAtIso);
+    if (timeError) {
+      setError(timeError);
+      return;
+    }
+
+    const built = toSavePayload(setStartedAt(draft, startedAtIso), new Date(finishedAtIso), workout.notes);
     if ("error" in built) {
       setError(built.error);
       return;
@@ -144,7 +164,20 @@ export function EditWorkoutScreen({ workout, unit }: { workout: EditableWorkout;
         </div>
       )}
 
-      <div className="mt-4 space-y-6">
+      <div className="mt-4">
+        <WorkoutTimeEditor
+          startedAtIso={startedAtIso}
+          finishedAtIso={finishedAtIso}
+          defaultTimeZone={timeZoneSetting}
+          onChange={({ startedAtIso: next, finishedAtIso: nextFinish }) => {
+            setError(null);
+            setStartedAtIso(next);
+            setFinishedAtIso(nextFinish);
+          }}
+        />
+      </div>
+
+      <div className="space-y-6">
         {draft.exercises.map((ex, exIndex) => {
           let working = 0;
           return (

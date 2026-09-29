@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteWorkoutButton } from "@/components/DeleteWorkoutButton";
 import { PageHeader } from "@/components/PageHeader";
-import { getTimeZoneMode, getWeightUnit, getWorkout } from "@/lib/data/queries";
+import { getTimeZoneSetting, getWeightUnit, getWorkout } from "@/lib/data/queries";
 import { formatWeight } from "@/lib/domain/units";
 import { LocalTime } from "@/components/LocalTime";
 import { formatDuration } from "@/lib/format";
@@ -10,7 +10,7 @@ import { formatDuration } from "@/lib/format";
 export default async function WorkoutDetailPage({ params }: PageProps<"/history/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [workout, unit, tz] = await Promise.all([getWorkout(id), getWeightUnit(), getTimeZoneMode()]);
+  const [workout, unit, tz] = await Promise.all([getWorkout(id), getWeightUnit(), getTimeZoneSetting()]);
   if (!workout) notFound();
 
   return (
