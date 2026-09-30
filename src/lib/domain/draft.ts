@@ -94,6 +94,28 @@ export function renameDraft(draft: WorkoutDraft, name: string): WorkoutDraft {
   return { ...draft, name };
 }
 
+/** Sets a draft's start time (used only by the completed-workout time editor). */
+export function setStartedAt(draft: WorkoutDraft, startedAtIso: string): WorkoutDraft {
+  return { ...draft, startedAt: startedAtIso };
+}
+
+/**
+ * Validates an edited start/end time before saving: the end must be after the
+ * start, and neither can be in the future (a workout can't be logged before it
+ * happened). Returns a clear message, or null if the range is valid.
+ */
+export function validateWorkoutTimes(startedAtIso: string, finishedAtIso: string, now: Date = new Date()): string | null {
+  const started = new Date(startedAtIso);
+  const finished = new Date(finishedAtIso);
+  if (started.getTime() > now.getTime() || finished.getTime() > now.getTime()) {
+    return "Start and end times can't be in the future.";
+  }
+  if (finished.getTime() <= started.getTime()) {
+    return "End time must be after start time.";
+  }
+  return null;
+}
+
 /** Marks the draft as finished (waiting to save), fixing the finish time so retries don't drift it. */
 export function markFinishing(draft: WorkoutDraft, finishedAt: string): WorkoutDraft {
   return { ...draft, finishedAt };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import type { TimeZoneMode } from "@/lib/format";
+import { intlTimeZone, type TimeZoneSetting } from "@/lib/format";
 
 const noopSubscribe = () => () => {};
 
@@ -15,7 +15,7 @@ function dayLabel(date: Date, timeZone: string | undefined): string {
 }
 
 /** Last 7 calendar days (today rightmost) in the user's time zone setting, marking which had a completed workout. */
-export function WeekStrip({ finishedIsoDates, tz }: { finishedIsoDates: string[]; tz: TimeZoneMode }) {
+export function WeekStrip({ finishedIsoDates, tz }: { finishedIsoDates: string[]; tz: TimeZoneSetting }) {
   const onClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
   // Read once on mount (not on every render, which would re-trigger this
   // component for no reason since the strip only needs to be right "now" as
@@ -23,9 +23,9 @@ export function WeekStrip({ finishedIsoDates, tz }: { finishedIsoDates: string[]
   const [now] = useState(() => Date.now());
   if (!onClient) return <div className="mb-6 h-16" aria-hidden />;
 
-  const timeZone = tz === "utc" ? "UTC" : undefined;
+  const timeZone = intlTimeZone(tz);
   // Exact 24h steps back from now, not local calendar-day arithmetic, so this
-  // doesn't secretly depend on the browser's own time zone when tz === "utc".
+  // doesn't secretly depend on the browser's own time zone when tz isn't Automatic.
   const days = Array.from({ length: 7 }, (_, i) => new Date(now - (6 - i) * 86_400_000));
   const doneDays = new Set(finishedIsoDates.map((iso) => dayKey(new Date(iso), timeZone)));
 

@@ -49,10 +49,20 @@ built in this order (see `docs/ARCHITECTURE.md` for the schema/architecture deta
    completed), then either a "Next up" card for the active plan (Start + Skip) or a plain
    "Start workout" button if there's no active plan. Quick-start (templates, a blank workout)
    and Recent stay below, unchanged.
-   - **Time zones.** Every timestamp is still stored in UTC. A new per-user setting
-     (Settings > Time zone: Automatic — the original device-local behavior — or UTC) controls
-     how dates/times are *displayed* everywhere in the app: the day strip, history, workout
-     details, and progress charts.
+   - **Time zones.** Every timestamp is still stored in UTC. A per-user setting
+     (Settings > Time zone: Automatic — the original device-local behavior — UTC, or a Fixed
+     IANA zone picked from a searchable list, e.g. America/Chicago) controls how dates/times are
+     *displayed* everywhere in the app: the day strip, history, workout details, and progress
+     charts.
+   - **Editing a past workout's date/time (2026-09-29).** The workout edit screen lets you
+     change a completed workout's start and end date/time, with the resulting duration shown
+     and a time-zone selector (defaulting to the Settings time zone, overridable per edit) so
+     times can be entered in the zone the workout actually happened in. Saved as UTC either way;
+     validated so the end is after the start and neither is in the future. Everything derived
+     from workout time (history order, the day strip, muscle workload, PRs, charts) reflects the
+     edit immediately since it's computed live from `workouts.started_at`/`finished_at`; the
+     active plan's position is untouched, since only finishing a workout (`save_workout`) can
+     advance it, never editing one (`update_workout`).
 4. **Transparent muscle math.** Each exercise's detail screen shows a small diagram (primary
    muscles in the strong color, secondary in a lighter one) and a plain-language credit
    breakdown ("Primary (100% credit per set): Chest, Front delts. Secondary (50% credit per

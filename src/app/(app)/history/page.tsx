@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
-import { getTimeZoneMode, listWorkouts } from "@/lib/data/queries";
+import { getTimeZoneSetting, listWorkouts } from "@/lib/data/queries";
 import { LocalTime } from "@/components/LocalTime";
 import { formatDuration } from "@/lib/format";
 
 export default async function HistoryPage() {
-  const [workouts, tz] = await Promise.all([listWorkouts(), getTimeZoneMode()]);
+  const [workouts, tz] = await Promise.all([listWorkouts(), getTimeZoneSetting()]);
   return (
     <>
       <PageHeader title="History" />

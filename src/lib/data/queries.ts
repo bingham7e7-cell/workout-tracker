@@ -7,7 +7,7 @@ import "server-only";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { personalRecords, type ExerciseSession, type PersonalRecords } from "@/lib/domain/analytics";
 import { isWeightUnit, type WeightUnit } from "@/lib/domain/units";
-import { isTimeZoneMode, type TimeZoneMode } from "@/lib/format";
+import { toTimeZoneSetting, type TimeZoneSetting } from "@/lib/format";
 import { WORKLOAD_WINDOW_DAYS, type MuscleRole, type WorkloadSet } from "@/lib/domain/workload";
 
 export async function getWeightUnit(): Promise<WeightUnit> {
@@ -17,11 +17,11 @@ export async function getWeightUnit(): Promise<WeightUnit> {
   return isWeightUnit(data?.weight_unit) ? data.weight_unit : "lb";
 }
 
-export async function getTimeZoneMode(): Promise<TimeZoneMode> {
+export async function getTimeZoneSetting(): Promise<TimeZoneSetting> {
   const supabase = await getSupabaseServer();
-  const { data, error } = await supabase.from("profiles").select("time_zone_mode").maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("time_zone_mode, time_zone_name").maybeSingle();
   if (error) throw error;
-  return isTimeZoneMode(data?.time_zone_mode) ? data.time_zone_mode : "auto";
+  return toTimeZoneSetting(data?.time_zone_mode, data?.time_zone_name);
 }
 
 export type TemplateSummary = {

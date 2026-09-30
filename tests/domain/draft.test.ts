@@ -12,10 +12,12 @@ import {
   removeExercise,
   removeSet,
   setPreviousSets,
+  setStartedAt,
   summarizePreviousSets,
   toSavePayload,
   toggleSetDone,
   updateSet,
+  validateWorkoutTimes,
   type PreviousSet,
   type WorkoutDraft,
 } from "@/lib/domain/draft";
@@ -326,5 +328,53 @@ describe("editing a saved workout", () => {
     expect(toSavePayload(d, new Date("2026-09-01T11:00:00Z"))).toEqual({
       error: "Log at least one set before finishing",
     });
+  });
+
+  test("editing a workout's date/time carries through to the save payload, updating its history date", () => {
+    let d = editDraftFromWorkout(
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        name: "Push Day",
+        startedAt: "2026-09-01T10:00:00.000Z",
+        finishedAt: "2026-09-01T11:00:00.000Z",
+        notes: null,
+        exercises: [
+          {
+            exerciseId: BENCH,
+            name: "Barbell Bench Press",
+            sets: [{ weightKg: 102.058, reps: 5, rpe: null, isWarmup: false }],
+          },
+        ],
+      },
+      "lb",
+    );
+    // Correcting the date to a different day, e.g. the phone's clock was wrong.
+    d = setStartedAt(d, "2026-08-20T09:00:00.000Z");
+    const r = toSavePayload(d, new Date("2026-08-20T09:30:00.000Z"));
+    if ("error" in r) throw new Error(r.error);
+    expect(r.payload.started_at).toBe("2026-08-20T09:00:00.000Z");
+    expect(r.payload.finished_at).toBe("2026-08-20T09:30:00.000Z");
+    // Nothing else about the workout changes.
+    expect(r.payload.exercises).toEqual([
+      { exercise_id: BENCH, notes: null, sets: [{ weight_kg: 102.058, reps: 5, rpe: null, is_warmup: false }] },
+    ]);
+  });
+});
+
+describe("validating an edited workout's times", () => {
+  const NOW = new Date("2026-09-15T12:00:00.000Z");
+
+  test("accepts a valid past range", () => {
+    expect(validateWorkoutTimes("2026-09-01T10:00:00.000Z", "2026-09-01T11:00:00.000Z", NOW)).toBeNull();
+  });
+
+  test("rejects an end time at or before the start time", () => {
+    expect(validateWorkoutTimes("2026-09-01T11:00:00.000Z", "2026-09-01T11:00:00.000Z", NOW)).toMatch(/after start/i);
+    expect(validateWorkoutTimes("2026-09-01T11:00:00.000Z", "2026-09-01T10:00:00.000Z", NOW)).toMatch(/after start/i);
+  });
+
+  test("rejects a start or end time in the future", () => {
+    expect(validateWorkoutTimes("2026-09-20T10:00:00.000Z", "2026-09-20T11:00:00.000Z", NOW)).toMatch(/future/i);
+    expect(validateWorkoutTimes("2026-09-01T10:00:00.000Z", "2026-09-20T11:00:00.000Z", NOW)).toMatch(/future/i);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatDate, type TimeZoneMode } from "@/lib/format";
+import { formatDate, type TimeZoneSetting } from "@/lib/format";
 import type { WeightUnit } from "@/lib/domain/units";
 
 export type ChartPoint = {
@@ -33,7 +33,7 @@ function CustomTooltip({
   payload?: { payload: ChartPoint }[];
   unit: WeightUnit;
   metric: Metric;
-  tz: TimeZoneMode;
+  tz: TimeZoneSetting;
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -60,7 +60,7 @@ function CustomTooltip({
 }
 
 /** Progress over time for one exercise: estimated 1RM, top-set weight, or session volume. */
-export function ProgressChart({ points, unit, tz }: { points: ChartPoint[]; unit: WeightUnit; tz: TimeZoneMode }) {
+export function ProgressChart({ points, unit, tz }: { points: ChartPoint[]; unit: WeightUnit; tz: TimeZoneSetting }) {
   const [metric, setMetric] = useState<Metric>("estimated1RM");
 
   if (points.length < 2) {

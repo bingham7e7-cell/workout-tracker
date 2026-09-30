@@ -9,7 +9,7 @@ import { LocalTime } from "@/components/LocalTime";
 import {
   getActivePlanNext,
   getRecentSetsForWorkload,
-  getTimeZoneMode,
+  getTimeZoneSetting,
   getWeightUnit,
   listMuscleGroups,
   listRecentWorkoutDates,
@@ -21,7 +21,7 @@ import { muscleWorkload } from "@/lib/domain/workload";
 export default async function HomePage() {
   const [unit, tz, templates, recent, sets, muscleGroups, activePlanNext, recentDates] = await Promise.all([
     getWeightUnit(),
-    getTimeZoneMode(),
+    getTimeZoneSetting(),
     listTemplates(),
     listWorkouts(3),
     getRecentSetsForWorkload(),
